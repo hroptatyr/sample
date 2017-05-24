@@ -22,6 +22,12 @@ EXTRA_DIST += version.c.in
 EXTRA_DIST += nifty.h
 
 
+bin_PROGRAMS += sample
+sample_SOURCES = sample.c
+sample_SOURCES += version.c version.h
+BUILT_SOURCES += sample.yucc
+
+
 ## version rules
 version.c: version.c.in $(top_builddir)/.version
 	$(AM_V_GEN) PATH="$(top_builddir)/build-aux:$${PATH}" \
