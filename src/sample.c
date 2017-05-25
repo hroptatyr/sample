@@ -46,8 +46,10 @@
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <assert.h>
+#include "pcg_basic.h"
 #include "nifty.h"
 
 #if !defined BUFSIZ
@@ -81,19 +83,34 @@ static char *buf;
 static size_t zbuf;
 
 static int
+init_rng(uint64_t seed)
+{
+	uint64_t stid = 0ULL;
+
+	if (!seed) {
+		seed = time(NULL);
+		stid = (intptr_t)&seed;
+	}
+	pcg32_srandom(seed, stid);
+	return 0;
+}
+
+static int
 sample_gen(int fd)
 {
 /* generic sampler */
 	/* number of lines read so far */
 	size_t nfln = 0U;
-	/* number of header lines printed */
-	size_t nhdr = 0U;
+	/* number of output lines so far */
+	size_t noln = 0U;
 	/* ring buffer index */
 	size_t nftr = 0U;
 	/* fill of BUF, also used as offset of end-of-header in HDR mode */
 	size_t nbuf = 0U;
 	/* number of octets read per read() */
 	ssize_t nrd;
+	/* offsets to footer */
+	size_t last[nfooter + 1U];
 
 	with (char *tmp = realloc(buf, BUFSIZ)) {
 		if (UNLIKELY(tmp == NULL)) {
@@ -104,8 +121,9 @@ sample_gen(int fd)
 		buf = tmp;
 		zbuf = BUFSIZ;
 	}
-	size_t last[nfooter + 1U];
+	/* clean up last array */
 	memset(last, 0, sizeof(last));
+
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
 		const size_t nunbuf = nbuf + nrd;
@@ -115,25 +133,39 @@ sample_gen(int fd)
 			const size_t obuf = nbuf;
 
 			nbuf = ++x - buf;
-			if (nhdr++ < nheader) {
-				goto wrln;
+			if (UNLIKELY(nfln == nheader + nfooter)) {
+				fwrite("...\n", 1, 4U, stdout);
+			} else if (nfln < nheader) {
+				fwrite(buf + obuf, sizeof(*buf), nbuf - obuf, stdout);
+				noln++;
+				continue;
 			}
+
+			/* sample */
+			if (!pcg32_boundedrand(10U)) {
+				const size_t this = last[(nftr + 0U) % countof(last)];
+				const size_t next = last[(nftr + 1U) % countof(last)];
+
+				if (this < next) {
+					fwrite(buf + this, sizeof(*buf), next - this, stdout);
+					noln++;
+				}
+			}
+
 			/* keep track of footers */
 			last[nftr] = obuf;
 			nftr = (nftr + 1U) % countof(last);
-			continue;
-
-		wrln:
-			fwrite(buf + obuf, sizeof(*buf), nbuf - obuf, stdout);
 		}
 		/* keep track of last footer */
 		last[nftr] = nunbuf;
 	}
 	if (LIKELY(nfln > nheader + nfooter)) {
-		fwrite("...\n", 1, 4U, stdout);
 		nftr++;
 	} else {
 		nftr = 0U;
+	}
+	if (noln > nheader) {
+		fwrite("...\n", 1, 4U, stdout);
 	}
 	/* fast forward footer if there wasn't enough lines */
 	for (size_t i = nftr, this, next;
@@ -211,6 +243,9 @@ main(int argc, char *argv[])
 	if (argi->footer_arg) {
 		nfooter = strtoul(argi->footer_arg, NULL, 0);
 	}
+
+	/* initialise randomness */
+	init_rng(0);
 
 	for (size_t i = 0U; i < argi->nargs + !argi->nargs; i++) {
 		rc |= sample(argi->args[i]) < 0;
