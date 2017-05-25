@@ -111,6 +111,12 @@ sample_gen(int fd)
 	ssize_t nrd;
 	/* offsets to footer */
 	size_t last[nfooter + 1U];
+	/* 3 major states, HEAD BEEF and TAIL */
+	enum {
+		HEAD,
+		BEEF,
+		TAIL
+	} state = HEAD;
 
 	with (char *tmp = realloc(buf, BUFSIZ)) {
 		if (UNLIKELY(tmp == NULL)) {
@@ -128,36 +134,75 @@ sample_gen(int fd)
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
 		const size_t nunbuf = nbuf + nrd;
 
-		for (const char *x;
-		     (x = memchr(buf + nbuf, '\n', nunbuf - nbuf)); nfln++) {
-			const size_t obuf = nbuf;
+		switch (state) {
+		case HEAD:
+			for (const char *x;
+			     (x = memchr(buf + nbuf, '\n', nunbuf - nbuf));) {
+				const size_t o = nbuf;
 
-			nbuf = ++x - buf;
-			if (UNLIKELY(nfln == nheader + nfooter)) {
-				fwrite("...\n", 1, 4U, stdout);
-			} else if (nfln < nheader) {
-				fwrite(buf + obuf, sizeof(*buf), nbuf - obuf, stdout);
+				nbuf = ++x - buf;
+				fwrite(buf + o, sizeof(*buf), nbuf - o, stdout);
 				noln++;
-				continue;
+
+				if (++nfln >= nheader) {
+					goto tail;
+				}
 			}
+			break;
 
-			/* sample */
-			if (!pcg32_boundedrand(10U)) {
-				const size_t this = last[(nftr + 0U) % countof(last)];
-				const size_t next = last[(nftr + 1U) % countof(last)];
+		tail:
+			state = TAIL;
+		case TAIL:
+			for (const char *x;
+			     (x = memchr(buf + nbuf, '\n', nunbuf - nbuf));) {
+				/* keep track of footers */
+				last[nftr] = nbuf;
+				nftr = (nftr + 1U) % countof(last);
+				nbuf = ++x - buf;
 
-				if (this < next) {
-					fwrite(buf + this, sizeof(*buf), next - this, stdout);
+				if (++nfln > nheader + nfooter) {
+					goto beef;
+				}
+			}
+			/* keep track of last footer */
+			last[nftr] = nunbuf;
+			break;
+
+		beef:
+			fwrite("...\n", 1, 4U, stdout);
+			state = BEEF;
+			/* we need one more sample step because the
+			 * condition above that got us here goes one
+			 * step further than it should, lest we print
+			 * the ellipsis when there's exactly
+			 * nheader + nfoooter lines in the buffer */
+			goto sample;
+		case BEEF:
+			for (const char *x;
+			     (x = memchr(buf + nbuf, '\n', nunbuf - nbuf));) {
+				/* keep track of footers */
+				last[nftr] = nbuf;
+				nftr = (nftr + 1U) % countof(last);
+				nbuf = ++x - buf;
+
+				nfln++;
+
+#define LAST(x)		last[(x) % countof(last)]
+			sample:
+				/* sample */
+				if (!pcg32_boundedrand(10U)) {
+					const size_t this = last[nftr];
+					const size_t next = LAST(nftr + 1U);
+
+					fwrite(buf + this, sizeof(*buf),
+					       next - this, stdout);
 					noln++;
 				}
 			}
-
-			/* keep track of footers */
-			last[nftr] = obuf;
-			nftr = (nftr + 1U) % countof(last);
+			/* keep track of last footer */
+			last[nftr] = nunbuf;
+			break;
 		}
-		/* keep track of last footer */
-		last[nftr] = nunbuf;
 	}
 	if (LIKELY(nfln > nheader + nfooter)) {
 		nftr++;
@@ -170,9 +215,8 @@ sample_gen(int fd)
 	/* fast forward footer if there wasn't enough lines */
 	for (size_t i = nftr, this, next;
 	     i <= nftr + nfooter &&
-		     (this = last[(i + 0U) % countof(last)],
-		      next = last[(i + 1U) % countof(last)],
-		      this < next); i++) {
+		     (this = LAST(i), next = LAST(i + 1U), this < next);
+	     i++) {
 		fwrite(buf + this, sizeof(*buf), next - this, stdout);
 	}
 	return 0;
