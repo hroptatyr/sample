@@ -115,12 +115,14 @@ sample_gen(int fd)
 	ssize_t nrd;
 	/* offsets to footer */
 	size_t last[nfooter + 1U];
-	/* 3 major states, HEAD BEEF and TAIL */
+	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
+		EVAL,
 		HEAD,
 		BEEF,
-		TAIL
-	} state = HEAD;
+		TAIL,
+		CAKE,
+	} state = EVAL;
 
 	with (char *tmp = realloc(buf, BUFSIZ)) {
 		if (UNLIKELY(tmp == NULL)) {
@@ -140,6 +142,14 @@ sample_gen(int fd)
 		nbuf += nrd;
 
 		switch (state) {
+		case EVAL:
+			if (!nfooter && !nheader) {
+				goto cake;
+			} else if (!nheader) {
+				goto tail;
+			}
+			/* otherwise let HEAD state decide */
+			state = HEAD;
 		case HEAD:
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
@@ -153,10 +163,37 @@ sample_gen(int fd)
 					if (UNLIKELY(!nfooter && !rate)) {
 						/* that's it */
 						return 0;
+					} else if (!nfooter) {
+						goto cake;
 					}
+					/* otherwise the most generic mode */
 					goto tail;
 				}
 			}
+			goto wrap;
+
+		cake:
+			fwrite("...\n", 1, 4U, stdout);
+			state = CAKE;
+		case CAKE:
+			/* CAKE is the mode where we don't track tail lines */
+			for (const char *x;
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+				const size_t o = ibuf;
+
+				ibuf = ++x - buf;
+				nfln++;
+
+				/* sample */
+				if (!pcg32_boundedrand(rate)) {
+					fwrite(buf + o, sizeof(*buf),
+					       ibuf - o, stdout);
+					noln++;
+				}
+			}
+			goto wrap;
+
+		wrap:
 			if (UNLIKELY(!ibuf)) {
 				/* great, try a resize */
 				const size_t nuz = zbuf * 2U;
@@ -200,6 +237,7 @@ sample_gen(int fd)
 			 * the ellipsis when there's exactly
 			 * nheader + nfoooter lines in the buffer */
 			goto sample;
+
 		case BEEF:
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
@@ -222,6 +260,8 @@ sample_gen(int fd)
 					noln++;
 				}
 			}
+			goto over;
+
 		over:
 			/* beef buffer overrun */
 			with (const size_t nu = last[nftr]) {
