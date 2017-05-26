@@ -52,9 +52,10 @@
 #include "pcg_basic.h"
 #include "nifty.h"
 
-#if !defined BUFSIZ
-# define BUFSIZ	(4096U)
-#endif	/* !BUFSIZ */
+#if defined BUFSIZ
+# undef BUFSIZ
+#endif	/* BUFSIZ */
+#define BUFSIZ	(65536U)
 
 static size_t nheader = 5U;
 static size_t nfooter = 5U;
@@ -108,6 +109,8 @@ sample_gen(int fd)
 	size_t nftr = 0U;
 	/* fill of BUF, also used as offset of end-of-header in HDR mode */
 	size_t nbuf = 0U;
+	/* index into BUF to the beginning of the last unprocessed line */
+	size_t ibuf = 0U;
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
@@ -133,16 +136,17 @@ sample_gen(int fd)
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
-		const size_t nunbuf = nbuf + nrd;
+		/* calc next round's NBUF already */
+		nbuf += nrd;
 
 		switch (state) {
 		case HEAD:
 			for (const char *x;
-			     (x = memchr(buf + nbuf, '\n', nunbuf - nbuf));) {
-				const size_t o = nbuf;
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+				const size_t o = ibuf;
 
-				nbuf = ++x - buf;
-				fwrite(buf + o, sizeof(*buf), nbuf - o, stdout);
+				ibuf = ++x - buf;
+				fwrite(buf + o, sizeof(*buf), ibuf - o, stdout);
 				noln++;
 
 				if (++nfln >= nheader) {
@@ -155,18 +159,18 @@ sample_gen(int fd)
 			state = TAIL;
 		case TAIL:
 			for (const char *x;
-			     (x = memchr(buf + nbuf, '\n', nunbuf - nbuf));) {
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
-				last[nftr] = nbuf;
+				last[nftr] = ibuf;
 				nftr = (nftr + 1U) % countof(last);
-				nbuf = ++x - buf;
+				ibuf = ++x - buf;
 
 				if (++nfln > nheader + nfooter) {
 					goto beef;
 				}
 			}
 			/* keep track of last footer */
-			last[nftr] = nunbuf;
+			last[nftr] = ibuf;
 			break;
 
 		beef:
@@ -180,11 +184,11 @@ sample_gen(int fd)
 			goto sample;
 		case BEEF:
 			for (const char *x;
-			     (x = memchr(buf + nbuf, '\n', nunbuf - nbuf));) {
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
-				last[nftr] = nbuf;
+				last[nftr] = ibuf;
 				nftr = (nftr + 1U) % countof(last);
-				nbuf = ++x - buf;
+				ibuf = ++x - buf;
 
 				nfln++;
 
@@ -200,8 +204,17 @@ sample_gen(int fd)
 					noln++;
 				}
 			}
+			/* beef buffer overrun */
+			with (const size_t nu = last[nftr]) {
+				memmove(buf, buf + nu, nbuf - nu);
+				for (size_t i = 0U; i < countof(last); i++) {
+					last[i] -= nu;
+				}
+				nbuf -= nu;
+				ibuf -= nu;
+			}
 			/* keep track of last footer */
-			last[nftr] = nunbuf;
+			last[nftr] = ibuf;
 			break;
 		}
 	}
