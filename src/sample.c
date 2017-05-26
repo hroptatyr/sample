@@ -337,8 +337,21 @@ main(int argc, char *argv[])
 		}
 	}
 
-	/* initialise randomness */
-	init_rng(0);
+	with (uint64_t s = 0U) {
+		if (argi->seed_arg) {
+			char *on;
+			s = strtoull(argi->seed_arg, &on, 0);
+			if (!s || *on) {
+				errno = 0, error("\
+Error: seeds must be positive integers");
+				rc = 1;
+				goto out;
+			}
+		}
+
+		/* initialise randomness */
+		init_rng(s);
+	}
 
 	for (size_t i = 0U; i < argi->nargs + !argi->nargs; i++) {
 		rc |= sample(argi->args[i]) < 0;
