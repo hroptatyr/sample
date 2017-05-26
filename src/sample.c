@@ -143,7 +143,12 @@ sample_gen(int fd)
 
 		switch (state) {
 		case EVAL:
-			if (!nfooter && !nheader) {
+			if (rate == UINT32_MAX) {
+				/* oh they want everything printed */
+				fwrite(buf, sizeof(*buf), nrd, stdout);
+				nbuf = 0U;
+				break;
+			} else if (!nfooter && !nheader) {
 				goto cake;
 			} else if (!nheader) {
 				goto tail;

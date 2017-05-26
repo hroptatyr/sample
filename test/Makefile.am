@@ -40,5 +40,7 @@ TESTS += sample_11.clit
 TESTS += sample_12.clit
 TESTS += sample_13.clit
 TESTS += sample_14.clit
+TESTS += sample_15.clit
+TESTS += sample_16.clit
 
 ## Makefile.am ends here
