@@ -205,6 +205,19 @@ sample_gen(int fd)
 		over:
 			/* beef buffer overrun */
 			with (const size_t nu = last[nftr]) {
+				if (UNLIKELY(!nu)) {
+					/* resize and retry */
+					const size_t nuz = zbuf * 2U;
+					char *tmp = realloc(buf, nuz);
+
+					if (UNLIKELY(tmp == NULL)) {
+						return -1;
+					}
+					/* otherwise assign and retry */
+					buf = tmp;
+					zbuf = nuz;
+					break;
+				}
 				memmove(buf, buf + nu, nbuf - nu);
 				for (size_t i = 0U; i < countof(last); i++) {
 					last[i] -= nu;
