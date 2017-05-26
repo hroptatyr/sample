@@ -38,10 +38,14 @@ AX_CHECK_YUCK
 AX_YUCK_SCMVER([version.mk])
 AC_CONFIG_LINKS([GNUmakefile:GNUmakefile])
 
+## out test suite
+AX_CHECK_CLITORIS
+
 ## output
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([build-aux/Makefile])
 AC_CONFIG_FILES([src/Makefile])
+AC_CONFIG_FILES([test/Makefile])
 AC_OUTPUT
 
 echo
