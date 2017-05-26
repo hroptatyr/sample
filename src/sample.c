@@ -159,7 +159,7 @@ sample_gen(int fd)
 			state = TAIL;
 		case TAIL:
 			for (const char *x;
-			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+			     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
 				last[nftr] = ibuf;
 				nftr = (nftr + 1U) % countof(last);
@@ -290,9 +290,7 @@ sample_gen0(int fd)
 				}
 			}
 			/* HEAD buffer overrun */
-			errno = 0, error("\
-Error: header lines too long");
-			return -1;
+			break;
 
 		tail:
 			state = TAIL;
@@ -308,10 +306,9 @@ Error: header lines too long");
 					goto beef;
 				}
 			}
-			/* TAIL buffer isn't big enough, what do we do? */
-			errno = 0, error("\
-Error: footer lines too long");
-			return -1;
+			/* keep track of last footer */
+			last[nftr] = ibuf;
+			break;
 
 		beef:
 			state = BEEF;
@@ -346,11 +343,9 @@ Error: footer lines too long");
 	}
 	if (LIKELY(nfln > nheader + nfooter)) {
 		nftr++;
+		fwrite("...\n", 1, 4U, stdout);
 	} else {
 		nftr = 0U;
-	}
-	if (nfln > nheader) {
-		fwrite("...\n", 1, 4U, stdout);
 	}
 	/* fast forward footer if there wasn't enough lines */
 	for (size_t i = nftr, this, next;
