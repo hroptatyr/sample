@@ -150,6 +150,10 @@ sample_gen(int fd)
 				noln++;
 
 				if (++nfln >= nheader) {
+					if (UNLIKELY(!nfooter && !rate)) {
+						/* that's it */
+						return 0;
+					}
 					goto tail;
 				}
 			}
