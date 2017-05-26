@@ -20,4 +20,21 @@ batch_tests =
 check_PROGRAMS =
 CLEANFILES = $(check_PROGRAMS)
 
+## summon our helper
+include clitoris.am
+AM_CLIT_LOG_FLAGS = -v --builddir $(top_builddir)/src
+TESTS_ENVIRONMENT = root=$(top_srcdir) AEIOU_TRDIR=$(top_builddir)/src
+
+
+TESTS += sample_01.clit
+TESTS += sample_02.clit
+TESTS += sample_03.clit
+TESTS += sample_04.clit
+TESTS += sample_05.clit
+TESTS += sample_06.clit
+TESTS += sample_07.clit
+TESTS += sample_08.clit
+TESTS += sample_09.clit
+TESTS += sample_10.clit
+
 ## Makefile.am ends here

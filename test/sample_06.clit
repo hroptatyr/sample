@@ -1,0 +1,9 @@
+#!/usr/bin/clitoris
+
+$ seq 1 5 | sample -R 0
+1
+2
+3
+4
+5
+$

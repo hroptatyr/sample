@@ -1,0 +1,19 @@
+Usage: clitoris [OPTION]... TEST_FILE
+
+Run .clit regression test files.
+
+  --builddir=DIR  Specify where the compiled binaries can be found.
+  --srcdir=DIR  Specify where the source tree resides.
+  --shell=CMD   Use CMD as shell command, default: /bin/sh
+
+  -v, --verbose  Repeat execution steps on stderr.
+  -t, --pseudo-tty  Allocate a pseudo-tty for the tests to run in.
+
+  --timeout=SECS  Time out after SECS seconds.
+
+  -k, --keep-going  Don't break on the first failure or differing output
+
+  --diff=CMD  Use specified diff command instead of the one in PATH.
+  -x, --exit-code[=N]   Map any non-0 exit code from the commands to N,
+                        (default: 1), or, if N is omitted, pass the exit
+                        code through as is.
