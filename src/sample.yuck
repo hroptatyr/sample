@@ -1,0 +1,11 @@
+Usage: sample [FILE]
+
+Output a sample of FILE, or stdin if omitted.
+
+  -F, --footer=NUM      Print NUM lines of the footer, default: 5.
+  -G, --girdle=NUM      Print NUM lines of header and footer.
+  -H, --header=NUM      Print NUM lines of the header, default: 5.
+  -R, --rate=X          Sample at rate X.  Values between 0 and 1,
+                        or if suffixed with %, are taken literally,
+                        values >1 are interpreted as 1 in X,
+                        default: 10%.
