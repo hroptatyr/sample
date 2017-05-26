@@ -165,13 +165,11 @@ sample_gen(int fd)
 				nftr = (nftr + 1U) % countof(last);
 				ibuf = ++x - buf;
 
-				if (++nfln > nheader + nfooter) {
+				if (++nfln > nheader + nfooter && rate) {
 					goto beef;
 				}
 			}
-			/* keep track of last footer */
-			last[nftr] = ibuf;
-			break;
+			goto over;
 
 		beef:
 			fwrite("...\n", 1, 4U, stdout);
@@ -204,6 +202,7 @@ sample_gen(int fd)
 					noln++;
 				}
 			}
+		over:
 			/* beef buffer overrun */
 			with (const size_t nu = last[nftr]) {
 				memmove(buf, buf + nu, nbuf - nu);
@@ -223,129 +222,9 @@ sample_gen(int fd)
 	} else {
 		nftr = 0U;
 	}
-	if (noln > nheader) {
+	if (noln > nheader ||
+	    !rate && nfln > nheader + nfooter) {
 		fwrite("...\n", 1, 4U, stdout);
-	}
-	/* fast forward footer if there wasn't enough lines */
-	for (size_t i = nftr, this, next;
-	     i <= nftr + nfooter &&
-		     (this = LAST(i), next = LAST(i + 1U), this < next);
-	     i++) {
-		fwrite(buf + this, sizeof(*buf), next - this, stdout);
-	}
-	return 0;
-}
-
-static int
-sample_gen0(int fd)
-{
-/* generic header/footer sampler, i.e. sample rate == 0 */
-	/* number of lines read so far */
-	size_t nfln = 0U;
-	/* ring buffer index */
-	size_t nftr = 0U;
-	/* fill of BUF, also used as offset of end-of-header in HDR mode */
-	size_t nbuf = 0U;
-	/* index into BUF to the beginning of the last unprocessed line */
-	size_t ibuf = 0U;
-	/* number of octets read per read() */
-	ssize_t nrd;
-	/* offsets to footer */
-	size_t last[nfooter + 1U];
-	/* 3 major states, HEAD BEEF and TAIL */
-	enum {
-		HEAD,
-		BEEF,
-		TAIL
-	} state = HEAD;
-
-	with (char *tmp = realloc(buf, BUFSIZ)) {
-		if (UNLIKELY(tmp == NULL)) {
-			/* just bugger off */
-			return -1;
-		}
-		/* otherwise swap ptrs */
-		buf = tmp;
-		zbuf = BUFSIZ;
-	}
-	/* clean up last array */
-	memset(last, 0, sizeof(last));
-
-	/* deal with header */
-	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
-		/* calc next round's NBUF already */
-		nbuf += nrd;
-
-		switch (state) {
-		case HEAD:
-			for (const char *x;
-			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
-				const size_t o = ibuf;
-
-				ibuf = ++x - buf;
-				fwrite(buf + o, sizeof(*buf), ibuf - o, stdout);
-
-				if (++nfln >= nheader) {
-					goto tail;
-				}
-			}
-			/* HEAD buffer overrun */
-			break;
-
-		tail:
-			state = TAIL;
-		case TAIL:
-			for (const char *x;
-			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
-				/* keep track of footers */
-				last[nftr] = ibuf;
-				nftr = (nftr + 1U) % countof(last);
-				ibuf = ++x - buf;
-
-				if (++nfln >= nheader + nfooter) {
-					goto beef;
-				}
-			}
-			/* keep track of last footer */
-			last[nftr] = ibuf;
-			break;
-
-		beef:
-			state = BEEF;
-			/* we need one more sample step because the
-			 * condition above that got us here goes one
-			 * step further than it should, lest we print
-			 * the ellipsis when there's exactly
-			 * nheader + nfoooter lines in the buffer */
-		case BEEF:
-			for (const char *x;
-			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
-				/* keep track of footers */
-				last[nftr] = ibuf;
-				nftr = (nftr + 1U) % countof(last);
-				ibuf = ++x - buf;
-
-				nfln++;
-			}
-			/* beef buffer overrun */
-			with (const size_t nu = last[nftr]) {
-				memmove(buf, buf + nu, nbuf - nu);
-				for (size_t i = 0U; i < countof(last); i++) {
-					last[i] -= nu;
-				}
-				nbuf -= nu;
-				ibuf -= nu;
-			}
-			/* keep track of last footer */
-			last[nftr] = ibuf;
-			break;
-		}
-	}
-	if (LIKELY(nfln > nheader + nfooter)) {
-		nftr++;
-		fwrite("...\n", 1, 4U, stdout);
-	} else {
-		nftr = 0U;
 	}
 	/* fast forward footer if there wasn't enough lines */
 	for (size_t i = nftr, this, next;
@@ -367,9 +246,6 @@ sample(const char *fn)
 	if (fn == NULL || fn[0U] == '-' && fn[1U] == '\0') {
 		/* stdin ... *sigh* */
 		fd = STDIN_FILENO;
-		if (UNLIKELY(!rate)) {
-			return sample_gen0(fd);
-		}
 		return sample_gen(fd);
 	} else if (UNLIKELY((fd = open(fn, O_RDONLY)) < 0)) {
 		error("\
@@ -381,17 +257,9 @@ Error: cannot stat file `%s'", fn);
 		rc = -1;
 	} else if (!S_ISREG(st.st_mode)) {
 		/* fgetln/getline */
-		if (UNLIKELY(!rate)) {
-			rc = sample_gen0(fd);
-		} else {
-			rc = sample_gen(fd);
-		}
+		rc = sample_gen(fd);
 	} else {
-		if (UNLIKELY(!rate)) {
-			rc = sample_gen0(fd);
-		} else {
-			rc = sample_gen(fd);
-		}
+		rc = sample_gen(fd);
 	}
 
 	close(fd);
