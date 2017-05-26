@@ -153,7 +153,10 @@ sample_gen(int fd)
 					goto tail;
 				}
 			}
-			break;
+			/* HEAD buffer overrun */
+			errno = 0, error("\
+Error: header lines too long");
+			return -1;
 
 		tail:
 			state = TAIL;
@@ -169,9 +172,10 @@ sample_gen(int fd)
 					goto beef;
 				}
 			}
-			/* keep track of last footer */
-			last[nftr] = ibuf;
-			break;
+			/* TAIL buffer isn't big enough, what do we do? */
+			errno = 0, error("\
+Error: footer lines too long");
+			return -1;
 
 		beef:
 			fwrite("...\n", 1, 4U, stdout);
