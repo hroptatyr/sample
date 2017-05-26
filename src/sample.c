@@ -59,7 +59,7 @@
 
 static size_t nheader = 5U;
 static size_t nfooter = 5U;
-static unsigned int rate = 10;
+static unsigned int rate = UINT32_MAX / 10U;
 
 
 static void
@@ -185,7 +185,7 @@ sample_gen(int fd)
 				nfln++;
 
 				/* sample */
-				if (!pcg32_boundedrand(rate)) {
+				if (pcg32_random() < rate) {
 					fwrite(buf + o, sizeof(*buf),
 					       ibuf - o, stdout);
 					noln++;
@@ -251,7 +251,7 @@ sample_gen(int fd)
 #define LAST(x)		last[(x) % countof(last)]
 			sample:
 				/* sample */
-				if (!pcg32_boundedrand(rate)) {
+				if (pcg32_random() < rate) {
 					const size_t this = last[nftr];
 					const size_t next = LAST(nftr + 1U);
 
@@ -366,15 +366,25 @@ main(int argc, char *argv[])
 		char *on;
 		double x = strtod(argi->rate_arg, &on);
 
-		if (x <= 0.) {
-			rate = 0;
+		if (x < 0.) {
+			errno = 0, error("\
+Error: sample rate must be non-negative");
+			rc = 1;
+			goto out;
+		} else if (*on == '%' && x > 100.) {
+			errno = 0, error("\
+Error: sample rate in percent must be <=100");
+			rc = 1;
+			goto out;
 		} else if (*on == '%') {
-			rate = (unsigned int)(100. / x);
-		} else if (x < 1.) {
-			rate = (unsigned int)(1. / x);
-		} else {
-			rate = (unsigned int)x;
+			x /= 100.;
 		}
+
+		if (x > 1.) {
+			x = 1. / x;
+		}
+
+		rate = (unsigned int)((double)UINT32_MAX * x);
 	}
 
 	with (uint64_t s = 0U) {
