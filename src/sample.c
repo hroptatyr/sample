@@ -153,6 +153,22 @@ sample_gen(int fd)
 					goto tail;
 				}
 			}
+			if (UNLIKELY(!ibuf)) {
+				/* great, try a resize */
+				const size_t nuz = zbuf * 2U;
+				char *tmp = realloc(buf, nuz);
+
+				if (UNLIKELY(tmp == NULL)) {
+					return -1;
+				}
+				/* otherwise assign and retry */
+				buf = tmp;
+				zbuf = nuz;
+			} else if (LIKELY(ibuf < nbuf)) {
+				memmove(buf, buf + ibuf, nbuf - ibuf);
+				nbuf -= ibuf;
+				ibuf = 0U;
+			}
 			break;
 
 		tail:
