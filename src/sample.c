@@ -231,9 +231,9 @@ sample_gen(int fd)
 				zbuf = nuz;
 			} else if (LIKELY(ibuf < nbuf)) {
 				memmove(buf, buf + ibuf, nbuf - ibuf);
-				nbuf -= ibuf;
-				ibuf = 0U;
 			}
+			nbuf -= ibuf;
+			ibuf = 0U;
 			break;
 
 		tail:
