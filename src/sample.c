@@ -47,6 +47,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
+#include <math.h>
 #include <sys/stat.h>
 #include <assert.h>
 #include "pcg_basic.h"
@@ -78,6 +79,20 @@ error(const char *fmt, ...)
 	}
 	fputc('\n', stderr);
 	return;
+}
+
+static unsigned int
+runif32(void)
+{
+	return pcg32_random();
+}
+
+static unsigned int
+rexp32(unsigned int r, unsigned int d)
+{
+	unsigned int u = runif32();
+	double ud = (double)u / (double)UINT32_MAX;
+	return (unsigned int)(log(ud) / log((double)(r - d) / (double)r));
 }
 
 
@@ -329,6 +344,8 @@ sample_rsv(int fd)
 	size_t nbuf = 0U;
 	/* index into BUF to the beginning of the last unprocessed line */
 	size_t ibuf = 0U;
+	/* skip up to this line */
+	size_t gap = 0U;
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
@@ -339,6 +356,7 @@ sample_rsv(int fd)
 		HEAD,
 		BEEF,
 		FILL,
+		BEXP,
 	} state = EVAL;
 
 	with (char *tmp = realloc(buf, BUFSIZ)) {
@@ -491,7 +509,48 @@ sample_rsv(int fd)
 						buf + ibuf, y);
 					/* and memorise him */
 					last[nfixed] = last[nfixed - 1U] + y;
+				} else if (nfln > 4U * nfixed) {
+					/* switch to gap sampling */
+					goto bexp;
 				}
+			}
+			goto over;
+
+		bexp:
+			gap = nfln + rexp32(nfln, nfixed);
+			state = BEXP;
+		case BEXP:
+			for (const char *x;
+			     nfln < gap &&
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+			     ibuf = x - buf + 1U, nfln++);
+			for (const char *x;
+			     nfln >= gap &&
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+				/* drop a random sample from the tail */
+				const size_t j = pcg32_boundedrand(nfixed);
+				/* line length at J */
+				const size_t z = last[j + 1U] - last[j + 0U];
+				/* current line length */
+				const size_t y = x - buf + 1U - ibuf;
+
+				memmove(rsv + last[j + 0U],
+					rsv + last[j + 1U],
+					last[nfixed] - last[j + 1U]);
+
+				for (size_t i = j + 1U;
+				     i <= nfixed; i++) {
+					last[i - 1U] = last[i] - z;
+				}
+				/* bang this line */
+				MEMZCPY(rsv, last[nfixed - 1U], zrsv,
+					buf + ibuf, y);
+				/* and memorise him */
+				last[nfixed] = last[nfixed - 1U] + y;
+
+				ibuf = x - buf + 1U;
+				nfln++;
+				goto bexp;
 			}
 			goto over;
 
