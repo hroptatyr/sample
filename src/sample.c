@@ -91,8 +91,8 @@ static unsigned int
 rexp32(unsigned int r, unsigned int d)
 {
 	unsigned int u = runif32();
-	double ud = (double)u / (double)UINT32_MAX;
-	return (unsigned int)(log(ud) / log((double)(r - d) / (double)r));
+	double p = log((double)u / (double)UINT32_MAX);
+	return (unsigned int)(p / log((double)(r - d) / (double)r));
 }
 
 
