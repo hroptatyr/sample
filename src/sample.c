@@ -47,6 +47,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
+#include <math.h>
 #include <sys/stat.h>
 #include <assert.h>
 #include "pcg_basic.h"
@@ -60,6 +61,7 @@
 static size_t nheader = 5U;
 static size_t nfooter = 5U;
 static unsigned int rate = UINT32_MAX / 10U;
+static size_t nfixed;
 
 
 static void
@@ -79,10 +81,27 @@ error(const char *fmt, ...)
 	return;
 }
 
+static unsigned int
+runif32(void)
+{
+	return pcg32_random();
+}
+
+static unsigned int
+rexp32(unsigned int r, unsigned int d)
+{
+	unsigned int u = runif32();
+	double ud = (double)u / (double)UINT32_MAX;
+	return (unsigned int)(log(ud) / log((double)(r - d) / (double)r));
+}
+
 
 /* buffer */
 static char *buf;
 static size_t zbuf;
+/* reservoir */
+static char *rsv;
+static size_t zrsv;
 
 static int
 init_rng(uint64_t seed)
@@ -314,17 +333,269 @@ sample_gen(int fd)
 	return 0;
 }
 
+
+static int
+sample_rsv(int fd)
+{
+/* generic sampler */
+	/* number of lines read so far */
+	size_t nfln = 0U;
+	/* fill of BUF, also used as offset of end-of-header in HDR mode */
+	size_t nbuf = 0U;
+	/* index into BUF to the beginning of the last unprocessed line */
+	size_t ibuf = 0U;
+	/* skip up to this line */
+	size_t gap = 0U;
+	/* number of octets read per read() */
+	ssize_t nrd;
+	/* offsets to footer */
+	size_t last[nfixed + 1U];
+	/* 3 major states, HEAD BEEF/CAKE and TAIL */
+	enum {
+		EVAL,
+		HEAD,
+		BEEF,
+		FILL,
+		BEXP,
+	} state = EVAL;
+
+	with (char *tmp = realloc(buf, BUFSIZ)) {
+		if (UNLIKELY(tmp == NULL)) {
+			/* just bugger off */
+			return -1;
+		}
+		/* otherwise swap ptrs */
+		buf = tmp;
+		zbuf = BUFSIZ;
+	}
+	with (char *tmp = realloc(rsv, BUFSIZ)) {
+		if (UNLIKELY(tmp == NULL)) {
+			/* just bugger off */
+			return -1;
+		}
+		/* otherwise swap ptrs */
+		rsv = tmp;
+		zrsv = BUFSIZ;
+	}
+	/* clean up last array */
+	memset(last, 0, sizeof(last));
+
+	/* deal with header */
+	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
+		/* calc next round's NBUF already */
+		nbuf += nrd;
+
+		switch (state) {
+		case EVAL:
+			if (!nfixed && !nheader) {
+				return 0;
+			} else if (!nheader) {
+				goto fill;
+			}
+			/* otherwise let HEAD state decide */
+			state = HEAD;
+		case HEAD:
+			for (const char *x;
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+				const size_t o = ibuf;
+
+				ibuf = ++x - buf;
+				fwrite(buf + o, sizeof(*buf), ibuf - o, stdout);
+
+				if (++nfln >= nheader) {
+					if (UNLIKELY(!nfixed)) {
+						/* that's it */
+						return 0;
+					}
+					/* otherwise the most generic mode */
+					goto fill;
+				}
+			}
+			goto wrap;
+
+		wrap:
+			if (UNLIKELY(!ibuf)) {
+				/* great, try a resize */
+				const size_t nuz = zbuf * 2U;
+				char *tmp = realloc(buf, nuz);
+
+				if (UNLIKELY(tmp == NULL)) {
+					return -1;
+				}
+				/* otherwise assign and retry */
+				buf = tmp;
+				zbuf = nuz;
+			} else if (LIKELY(ibuf < nbuf)) {
+				memmove(buf, buf + ibuf, nbuf - ibuf);
+				nbuf -= ibuf;
+				ibuf = 0U;
+			}
+			break;
+
+		fill:
+			nfln = 0U;
+			state = FILL;
+		case FILL:
+			for (const char *x;
+			     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));) {
+				/* keep track of footers */
+				last[nfln++] = ibuf;
+				ibuf = ++x - buf;
+
+				if (nfln >= nfixed) {
+					goto beef;
+				}
+			}
+			goto over;
+
+#define MEMZCPY(tgt, off, tsz, src, len)				\
+			do {						\
+				if ((len) > (tsz)) {			\
+					size_t nuz = (tsz);		\
+					char *tmp;			\
+					while ((nuz *= 2U) < len);	\
+					tmp = realloc((tgt), nuz);	\
+					if (UNLIKELY(tmp == NULL)) {	\
+						return -1;		\
+					}				\
+					/* otherwise assign */		\
+					(tgt) = tmp;			\
+					(tsz) = nuz;			\
+				}					\
+				memcpy((tgt) + (off), src, len);	\
+			} while (0)
+
+		beef:
+			fwrite("...\n", 1, 4U, stdout);
+			state = BEEF;
+			/* take on the reservoir */
+			MEMZCPY(rsv, 0U, zrsv, buf + last[0U], ibuf - last[0U]);
+			last[nfixed] = ibuf - last[0U];
+			for (size_t i = nfixed - 1U; i > 0; i--) {
+				last[i] -= last[0U];
+			}
+			last[0U] = 0U;
+
+			/* we need one more sample step because the
+			 * condition above that got us here goes one
+			 * step further than it should, lest we print
+			 * the ellipsis when there's exactly
+			 * nheader + nfoooter lines in the buffer */
+		case BEEF:
+			for (const char *x;
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+			     ibuf = x - buf + 1U, nfln++) {
+				/* keep with propability nfixed / nfln */
+				if (pcg32_boundedrand(nfln) < nfixed) {
+					/* drop a random sample from the tail */
+					const size_t j =
+						pcg32_boundedrand(nfixed);
+					/* line length at J */
+					const size_t z =
+						last[j + 1U] - last[j + 0U];
+					/* current line length */
+					const size_t y = x - buf + 1U - ibuf;
+
+					memmove(rsv + last[j + 0U],
+						rsv + last[j + 1U],
+						last[nfixed] - last[j + 1U]);
+
+					for (size_t i = j + 1U;
+					     i <= nfixed; i++) {
+						last[i - 1U] = last[i] - z;
+					}
+					/* bang this line */
+					MEMZCPY(rsv, last[nfixed - 1U], zrsv,
+						buf + ibuf, y);
+					/* and memorise him */
+					last[nfixed] = last[nfixed - 1U] + y;
+				} else if (nfln > 4U * nfixed) {
+					/* switch to gap sampling */
+					goto bexp;
+				}
+			}
+			goto over;
+
+		bexp:
+			gap = nfln + rexp32(nfln, nfixed);
+			state = BEXP;
+		case BEXP:
+			for (const char *x;
+			     nfln < gap &&
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+			     ibuf = x - buf + 1U, nfln++);
+			for (const char *x;
+			     nfln >= gap &&
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+				/* drop a random sample from the tail */
+				const size_t j = pcg32_boundedrand(nfixed);
+				/* line length at J */
+				const size_t z = last[j + 1U] - last[j + 0U];
+				/* current line length */
+				const size_t y = x - buf + 1U - ibuf;
+
+				memmove(rsv + last[j + 0U],
+					rsv + last[j + 1U],
+					last[nfixed] - last[j + 1U]);
+
+				for (size_t i = j + 1U;
+				     i <= nfixed; i++) {
+					last[i - 1U] = last[i] - z;
+				}
+				/* bang this line */
+				MEMZCPY(rsv, last[nfixed - 1U], zrsv,
+					buf + ibuf, y);
+				/* and memorise him */
+				last[nfixed] = last[nfixed - 1U] + y;
+
+				ibuf = x - buf + 1U;
+				nfln++;
+				goto bexp;
+			}
+			goto over;
+
+		over:
+			/* beef buffer overrun */
+			if (UNLIKELY(!ibuf)) {
+				/* resize and retry */
+				const size_t nuz = zbuf * 2U;
+				char *tmp = realloc(buf, nuz);
+
+				if (UNLIKELY(tmp == NULL)) {
+					return -1;
+				}
+				/* otherwise assign and retry */
+				buf = tmp;
+				zbuf = nuz;
+				break;
+			}
+			memmove(buf, buf + ibuf, nbuf - ibuf);
+			nbuf -= ibuf;
+			ibuf -= ibuf;
+			break;
+		}
+	}
+	fwrite(rsv + last[0U], sizeof(*rsv), last[nfixed] - last[0U], stdout);
+	fwrite("...\n", 1, 4U, stdout);
+	return 0;
+}
+
 static int
 sample(const char *fn)
 {
+	int(*sample)(int) = sample_gen;
 	struct stat st;
 	int rc = 0;
 	int fd;
 
+	if (nfixed) {
+		sample = sample_rsv;
+	}
+
 	if (fn == NULL || fn[0U] == '-' && fn[1U] == '\0') {
 		/* stdin ... *sigh* */
 		fd = STDIN_FILENO;
-		return sample_gen(fd);
+		return sample(fd);
 	} else if (UNLIKELY((fd = open(fn, O_RDONLY)) < 0)) {
 		error("\
 Error: cannot open file `%s'", fn);
@@ -335,9 +606,9 @@ Error: cannot stat file `%s'", fn);
 		rc = -1;
 	} else if (!S_ISREG(st.st_mode)) {
 		/* fgetln/getline */
-		rc = sample_gen(fd);
+		rc = sample(fd);
 	} else {
-		rc = sample_gen(fd);
+		rc = sample(fd);
 	}
 
 	close(fd);
@@ -391,6 +662,16 @@ Error: sample rate in percent must be <=100");
 
 		rate = (unsigned int)((double)UINT32_MAX * x);
 	}
+	if (argi->fixed_arg) {
+		char *on;
+		nfixed = strtoul(argi->fixed_arg, &on, 0);
+		if (!nfixed || *on) {
+			errno = 0, error("\
+Error: parameter to --fixed must be positive");
+			rc = 1;
+			goto out;
+		}
+	}
 
 	with (uint64_t s = 0U) {
 		if (argi->seed_arg) {
@@ -412,8 +693,11 @@ Error: seeds must be positive integers");
 		rc |= sample(argi->args[i]) < 0;
 	}
 
-	if (LIKELY(buf != NULL)) {
+	if (buf != NULL) {
 		free(buf);
+	}
+	if (rsv != NULL) {
+		free(rsv);
 	}
 
 out:
