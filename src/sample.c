@@ -430,11 +430,28 @@ sample_rsv(int fd)
 			}
 			goto over;
 
+#define MEMZCPY(tgt, off, tsz, src, len)				\
+			do {						\
+				if ((len) > (tsz)) {			\
+					size_t nuz = (tsz);		\
+					char *tmp;			\
+					while ((nuz *= 2U) < len);	\
+					tmp = realloc((tgt), nuz);	\
+					if (UNLIKELY(tmp == NULL)) {	\
+						return -1;		\
+					}				\
+					/* otherwise assign */		\
+					(tgt) = tmp;			\
+					(tsz) = nuz;			\
+				}					\
+				memcpy((tgt) + (off), src, len);	\
+			} while (0)
+
 		beef:
 			fwrite("...\n", 1, 4U, stdout);
 			state = BEEF;
 			/* take on the reservoir */
-			memcpy(rsv, buf + last[0U], ibuf - last[0U]);
+			MEMZCPY(rsv, 0U, zrsv, buf + last[0U], ibuf - last[0U]);
 			last[nfixed] = ibuf - last[0U];
 			for (size_t i = nfixed - 1U; i > 0; i--) {
 				last[i] -= last[0U];
@@ -470,8 +487,8 @@ sample_rsv(int fd)
 						last[i - 1U] = last[i] - z;
 					}
 					/* bang this line */
-					memcpy(rsv + last[nfixed - 1U],
-					       buf + ibuf, y);
+					MEMZCPY(rsv, last[nfixed - 1U], zrsv,
+						buf + ibuf, y);
 					/* and memorise him */
 					last[nfixed] = last[nfixed - 1U] + y;
 				}
