@@ -240,7 +240,7 @@ sample_gen(int fd)
 			state = TAIL;
 		case TAIL:
 			for (const char *x;
-			     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));) {
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
 				last[nftr] = ibuf;
 				nftr = (nftr + 1U) % countof(last);
@@ -348,6 +348,8 @@ sample_rsv(int fd)
 	size_t gap = 0U;
 	/* number of octets read per read() */
 	ssize_t nrd;
+	/* offsets to footer */
+	size_t last[nfooter + 1U];
 	/* reservoir lines */
 	size_t lrsv[nfixed + 1U];
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
@@ -377,7 +379,8 @@ sample_rsv(int fd)
 		rsv = tmp;
 		zrsv = BUFSIZ;
 	}
-	/* clean up lrsv array */
+	/* clean up last and lrsv array */
+	memset(last, 0, sizeof(last));
 	memset(lrsv, 0, sizeof(lrsv));
 
 	/* deal with header */
@@ -437,12 +440,22 @@ sample_rsv(int fd)
 			state = FILL;
 		case FILL:
 			for (const char *x;
-			     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));) {
+			     nfln < nfixed &&
+				     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));
+			     nfln++) {
 				/* keep track of footers */
-				lrsv[nfln++] = ibuf;
+				lrsv[nfln] = ibuf;
+				LAST(nfln) = ibuf;
+				ibuf = ++x - buf;
+			}
+			for (const char *x;
+			     nfln >= nfixed &&
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+			     ) {
+				LAST(nfln) = ibuf;
 				ibuf = ++x - buf;
 
-				if (nfln >= nfixed) {
+				if (++nfln >= nfixed + nfooter) {
 					goto beef;
 				}
 			}
@@ -469,8 +482,9 @@ sample_rsv(int fd)
 			fwrite("...\n", 1, 4U, stdout);
 			state = BEEF;
 			/* take on the reservoir */
-			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U], ibuf - lrsv[0U]);
-			lrsv[nfixed] = ibuf - lrsv[0U];
+			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U],
+				LAST(nfln - nfooter) - lrsv[0U]);
+			lrsv[nfixed] = LAST(nfln - nfooter) - lrsv[0U];
 			for (size_t i = nfixed - 1U; i > 0; i--) {
 				lrsv[i] -= lrsv[0U];
 			}
@@ -485,6 +499,9 @@ sample_rsv(int fd)
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 			     ibuf = x - buf + 1U, nfln++) {
+				/* keep track of footers */
+				LAST(nfln) = ibuf;
+
 				/* keep with propability nfixed / nfln */
 				if (pcg32_boundedrand(nfln) < nfixed) {
 					/* drop a random sample from the tail */
@@ -494,7 +511,11 @@ sample_rsv(int fd)
 					const size_t z =
 						lrsv[j + 1U] - lrsv[j + 0U];
 					/* current line length */
-					const size_t y = x - buf + 1U - ibuf;
+					const size_t y =
+						nfooter ?
+						LAST(nfln - nfooter + 1U) -
+						LAST(nfln - nfooter + 0U)
+						: x - buf + 1U - ibuf;
 
 					memmove(rsv + lrsv[j + 0U],
 						rsv + lrsv[j + 1U],
@@ -506,7 +527,7 @@ sample_rsv(int fd)
 					}
 					/* bang this line */
 					MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
-						buf + ibuf, y);
+						buf + LAST(nfln - nfooter), y);
 					/* and memorise him */
 					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
 				} else if (nfln > 4U * nfixed) {
@@ -523,7 +544,12 @@ sample_rsv(int fd)
 			for (const char *x;
 			     nfln < gap &&
 				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
-			     ibuf = x - buf + 1U, nfln++);
+			     ibuf = x - buf + 1U, nfln++) {
+				/* every line could be our last, so keep
+				 * track of them */
+				/* keep track of footers */
+				LAST(nfln) = ibuf;
+			}
 			for (const char *x;
 			     nfln >= gap &&
 				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
@@ -532,8 +558,9 @@ sample_rsv(int fd)
 				const size_t j = pcg32_boundedrand(nfixed);
 				/* line length at J */
 				const size_t z = lrsv[j + 1U] - lrsv[j + 0U];
-				/* current line length */
-				const size_t y = x - buf + 1U - ibuf;
+
+				/* keep track of footers */
+				LAST(nfln) = ibuf;
 
 				memmove(rsv + lrsv[j + 0U],
 					rsv + lrsv[j + 1U],
@@ -544,10 +571,16 @@ sample_rsv(int fd)
 					lrsv[i - 1U] = lrsv[i] - z;
 				}
 				/* bang this line */
-				MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
-					buf + ibuf, y);
-				/* and memorise him */
-				lrsv[nfixed] = lrsv[nfixed - 1U] + y;
+				with (const size_t y =
+				      nfooter ?
+				      LAST(nfln - nfooter + 1U) -
+				      LAST(nfln - nfooter + 0U)
+				      : x - buf + 1U - ibuf) {
+					MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
+						buf + LAST(nfln - nfooter), y);
+					/* and memorise him */
+					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
+				}
 
 				ibuf = x - buf + 1U;
 				nfln++;
@@ -557,27 +590,41 @@ sample_rsv(int fd)
 
 		over:
 			/* beef buffer overrun */
-			if (UNLIKELY(!ibuf)) {
-				/* resize and retry */
-				const size_t nuz = zbuf * 2U;
-				char *tmp = realloc(buf, nuz);
+			with (const size_t nu = LAST(nfln)) {
+				if (UNLIKELY(!nu)) {
+					/* resize and retry */
+					const size_t nuz = zbuf * 2U;
+					char *tmp = realloc(buf, nuz);
 
-				if (UNLIKELY(tmp == NULL)) {
-					return -1;
+					if (UNLIKELY(tmp == NULL)) {
+						return -1;
+					}
+					/* otherwise assign and retry */
+					buf = tmp;
+					zbuf = nuz;
+					break;
 				}
-				/* otherwise assign and retry */
-				buf = tmp;
-				zbuf = nuz;
-				break;
+				memmove(buf, buf + nu, nbuf - nu);
+				for (size_t i = 0U; i < countof(last); i++) {
+					last[i] -= nu;
+				}
+				nbuf -= nu;
+				ibuf -= nu;
 			}
-			memmove(buf, buf + ibuf, nbuf - ibuf);
-			nbuf -= ibuf;
-			ibuf -= ibuf;
+			/* keep track of last footer */
+			LAST(nfln) = ibuf;
 			break;
 		}
 	}
 	fwrite(rsv + lrsv[0U], sizeof(*rsv), lrsv[nfixed] - lrsv[0U], stdout);
-	fwrite("...\n", 1, 4U, stdout);
+	if (nfln > nfixed + nfooter) {
+		fwrite("...\n", 1, 4U, stdout);
+	}
+	{
+		const size_t beg = LAST(nfln - nfooter - 0U);
+		const size_t end = LAST(nfln - nfooter - 1U);
+		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	}
 	return 0;
 }
 
