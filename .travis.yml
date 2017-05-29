@@ -1,0 +1,36 @@
+language: c
+
+os:
+  - linux
+  - osx
+
+compiler:
+  - gcc
+  - clang
+
+before_script:
+  - autoreconf -vfi
+
+script:
+  - ./configure || { cat config.log; false; }
+  - make
+  - if test "${TRAVIS_OS_NAME}" = "linux"; then
+      make distcheck;
+    else
+      make check;
+    fi
+    || { cat test/test-suite.log sample-*/_build/test/test-suite.log; false; }
+
+deploy:
+  provider: releases
+  api_key:
+    secure: "c1kGxtJM55NhqQWlWuwzJ1bYM1O4P7LmPaiBCE8LoU19psgXWGvCPDsr53Ql4iwHtrZ5N/jmdgKyE3pdZEJ4vRh8HqdiUnvPleR6m43jQ9VpaQb+6ae10rGc92LmDHsClW9+NGmhOyJxSaGFbbT69WFQNYNYTGzVgcTEmvFW2Gz9nPD8dH8v8eI+Ilvx1T1e9XTZJAF/q1OK4rt1iZ0JybqZafTcPPjZuczBl+rwsi5kTw5kkOWqOFsaqQ2XKIvqv7r5BPRFvJVhjgdfgPmU4RyYWELcdSkwqfkx9u470NLlIdl3qU/zUDFxoLnHTnfIcKHwBOo63G29WrH3UxzKLP+V6mSxqZV3yV7iUbsHvcFP94eaSvNBz9UFhkc/sGDWVDzjdvrfelEaojojnLooYmw0iCO2A918gDJ/Kl1gsoW1GiA3C/XO/hK6HyHiPPH2mcOatFlaiyw/lPJXTg71arP+7zne6Jggtq327vvqsQ6w9UmU9G9kW0yGCCLGOLia5JlAND5vsTu1ICoQsAuiR87R7nSiqmteV/JkFYLLNBSCcod1nBm04547wcpmHHvArXyUnVJMpUTISwfbNdKlGsCIMjVeDOu73DeMbREqaLKLdq5WEPfXkcBJ4XJlGWRXB1NF8lVhoLf5HphDKjMQhSegfxyFe4UGQTKU4qrdobM="
+  file_glob: true
+  file: sample-*.tar.xz
+  skip_cleanup: true
+  on:
+    tags: true
+
+notifications:
+  email:
+    - devel@fresse.org
