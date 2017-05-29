@@ -26,6 +26,7 @@ bin_PROGRAMS += sample
 sample_SOURCES = sample.c
 sample_SOURCES += pcg_basic.c pcg_basic.h
 sample_SOURCES += version.c version.h
+sample_LDADD = -lm
 BUILT_SOURCES += sample.yucc
 
 
