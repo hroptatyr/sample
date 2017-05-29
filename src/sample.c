@@ -348,8 +348,8 @@ sample_rsv(int fd)
 	size_t gap = 0U;
 	/* number of octets read per read() */
 	ssize_t nrd;
-	/* offsets to footer */
-	size_t last[nfixed + 1U];
+	/* reservoir lines */
+	size_t lrsv[nfixed + 1U];
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -377,8 +377,8 @@ sample_rsv(int fd)
 		rsv = tmp;
 		zrsv = BUFSIZ;
 	}
-	/* clean up last array */
-	memset(last, 0, sizeof(last));
+	/* clean up lrsv array */
+	memset(lrsv, 0, sizeof(lrsv));
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
@@ -439,7 +439,7 @@ sample_rsv(int fd)
 			for (const char *x;
 			     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
-				last[nfln++] = ibuf;
+				lrsv[nfln++] = ibuf;
 				ibuf = ++x - buf;
 
 				if (nfln >= nfixed) {
@@ -469,12 +469,12 @@ sample_rsv(int fd)
 			fwrite("...\n", 1, 4U, stdout);
 			state = BEEF;
 			/* take on the reservoir */
-			MEMZCPY(rsv, 0U, zrsv, buf + last[0U], ibuf - last[0U]);
-			last[nfixed] = ibuf - last[0U];
+			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U], ibuf - lrsv[0U]);
+			lrsv[nfixed] = ibuf - lrsv[0U];
 			for (size_t i = nfixed - 1U; i > 0; i--) {
-				last[i] -= last[0U];
+				lrsv[i] -= lrsv[0U];
 			}
-			last[0U] = 0U;
+			lrsv[0U] = 0U;
 
 			/* we need one more sample step because the
 			 * condition above that got us here goes one
@@ -492,23 +492,23 @@ sample_rsv(int fd)
 						pcg32_boundedrand(nfixed);
 					/* line length at J */
 					const size_t z =
-						last[j + 1U] - last[j + 0U];
+						lrsv[j + 1U] - lrsv[j + 0U];
 					/* current line length */
 					const size_t y = x - buf + 1U - ibuf;
 
-					memmove(rsv + last[j + 0U],
-						rsv + last[j + 1U],
-						last[nfixed] - last[j + 1U]);
+					memmove(rsv + lrsv[j + 0U],
+						rsv + lrsv[j + 1U],
+						lrsv[nfixed] - lrsv[j + 1U]);
 
 					for (size_t i = j + 1U;
 					     i <= nfixed; i++) {
-						last[i - 1U] = last[i] - z;
+						lrsv[i - 1U] = lrsv[i] - z;
 					}
 					/* bang this line */
-					MEMZCPY(rsv, last[nfixed - 1U], zrsv,
+					MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
 						buf + ibuf, y);
 					/* and memorise him */
-					last[nfixed] = last[nfixed - 1U] + y;
+					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
 				} else if (nfln > 4U * nfixed) {
 					/* switch to gap sampling */
 					goto bexp;
@@ -526,27 +526,28 @@ sample_rsv(int fd)
 			     ibuf = x - buf + 1U, nfln++);
 			for (const char *x;
 			     nfln >= gap &&
-				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+				) {
 				/* drop a random sample from the tail */
 				const size_t j = pcg32_boundedrand(nfixed);
 				/* line length at J */
-				const size_t z = last[j + 1U] - last[j + 0U];
+				const size_t z = lrsv[j + 1U] - lrsv[j + 0U];
 				/* current line length */
 				const size_t y = x - buf + 1U - ibuf;
 
-				memmove(rsv + last[j + 0U],
-					rsv + last[j + 1U],
-					last[nfixed] - last[j + 1U]);
+				memmove(rsv + lrsv[j + 0U],
+					rsv + lrsv[j + 1U],
+					lrsv[nfixed] - lrsv[j + 1U]);
 
 				for (size_t i = j + 1U;
 				     i <= nfixed; i++) {
-					last[i - 1U] = last[i] - z;
+					lrsv[i - 1U] = lrsv[i] - z;
 				}
 				/* bang this line */
-				MEMZCPY(rsv, last[nfixed - 1U], zrsv,
+				MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
 					buf + ibuf, y);
 				/* and memorise him */
-				last[nfixed] = last[nfixed - 1U] + y;
+				lrsv[nfixed] = lrsv[nfixed - 1U] + y;
 
 				ibuf = x - buf + 1U;
 				nfln++;
@@ -575,7 +576,7 @@ sample_rsv(int fd)
 			break;
 		}
 	}
-	fwrite(rsv + last[0U], sizeof(*rsv), last[nfixed] - last[0U], stdout);
+	fwrite(rsv + lrsv[0U], sizeof(*rsv), lrsv[nfixed] - lrsv[0U], stdout);
 	fwrite("...\n", 1, 4U, stdout);
 	return 0;
 }
