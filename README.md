@@ -13,6 +13,15 @@ Red tape
 - licensed under [BSD3c][1]
 
 
+Features
+--------
+
+- proportional sampling of streams and files
+- header and footer can be included in the sample
+- reservoir sampling (fixed sample size) of streams and files
+- reservoir sampling preserves order
+
+
 Motivation
 ----------
 
