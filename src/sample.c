@@ -629,6 +629,253 @@ sample_rsv(int fd)
 }
 
 static int
+sample_rsv_0f(int fd)
+{
+/* generic sampler */
+	/* number of lines read so far */
+	size_t nfln = 0U;
+	/* fill of BUF, also used as offset of end-of-header in HDR mode */
+	size_t nbuf = 0U;
+	/* index into BUF to the beginning of the last unprocessed line */
+	size_t ibuf = 0U;
+	/* skip up to this line */
+	size_t gap = 0U;
+	/* number of octets read per read() */
+	ssize_t nrd;
+	/* reservoir lines */
+	size_t lrsv[nfixed + 1U];
+	/* 3 major states, HEAD BEEF/CAKE and TAIL */
+	enum {
+		EVAL,
+		HEAD,
+		BEEF,
+		FILL,
+		BEXP,
+	} state = EVAL;
+
+	with (char *tmp = realloc(buf, BUFSIZ)) {
+		if (UNLIKELY(tmp == NULL)) {
+			/* just bugger off */
+			return -1;
+		}
+		/* otherwise swap ptrs */
+		buf = tmp;
+		zbuf = BUFSIZ;
+	}
+	with (char *tmp = realloc(rsv, BUFSIZ)) {
+		if (UNLIKELY(tmp == NULL)) {
+			/* just bugger off */
+			return -1;
+		}
+		/* otherwise swap ptrs */
+		rsv = tmp;
+		zrsv = BUFSIZ;
+	}
+	/* clean up lrsv array */
+	memset(lrsv, 0, sizeof(lrsv));
+
+	/* deal with header */
+	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
+		/* calc next round's NBUF already */
+		nbuf += nrd;
+
+		switch (state) {
+		case EVAL:
+			if (!nfixed && !nheader) {
+				return 0;
+			} else if (!nheader) {
+				goto fill;
+			}
+			/* otherwise let HEAD state decide */
+			state = HEAD;
+		case HEAD:
+			for (const char *x;
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
+				const size_t o = ibuf;
+
+				ibuf = ++x - buf;
+				fwrite(buf + o, sizeof(*buf), ibuf - o, stdout);
+
+				if (++nfln >= nheader) {
+					if (UNLIKELY(!nfixed)) {
+						/* that's it */
+						return 0;
+					}
+					/* otherwise the most generic mode */
+					goto fill;
+				}
+			}
+			goto wrap;
+
+		wrap:
+			if (UNLIKELY(!ibuf)) {
+				/* great, try a resize */
+				const size_t nuz = zbuf * 2U;
+				char *tmp = realloc(buf, nuz);
+
+				if (UNLIKELY(tmp == NULL)) {
+					return -1;
+				}
+				/* otherwise assign and retry */
+				buf = tmp;
+				zbuf = nuz;
+			} else if (LIKELY(ibuf < nbuf)) {
+				memmove(buf, buf + ibuf, nbuf - ibuf);
+				nbuf -= ibuf;
+				ibuf = 0U;
+			}
+			break;
+
+		fill:
+			nfln = 0U;
+			state = FILL;
+		case FILL:
+			for (const char *x;
+			     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));) {
+				/* keep track of footers */
+				lrsv[nfln++] = ibuf;
+				ibuf = ++x - buf;
+
+				if (nfln >= nfixed) {
+					goto beef;
+				}
+			}
+			goto over;
+
+#define MEMZCPY(tgt, off, tsz, src, len)				\
+			do {						\
+				if ((len) > (tsz)) {			\
+					size_t nuz = (tsz);		\
+					char *tmp;			\
+					while ((nuz *= 2U) < len);	\
+					tmp = realloc((tgt), nuz);	\
+					if (UNLIKELY(tmp == NULL)) {	\
+						return -1;		\
+					}				\
+					/* otherwise assign */		\
+					(tgt) = tmp;			\
+					(tsz) = nuz;			\
+				}					\
+				memcpy((tgt) + (off), src, len);	\
+			} while (0)
+
+		beef:
+			fwrite("...\n", 1, 4U, stdout);
+			state = BEEF;
+			/* take on the reservoir */
+			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U], ibuf - lrsv[0U]);
+			lrsv[nfixed] = ibuf - lrsv[0U];
+			for (size_t i = nfixed - 1U; i > 0; i--) {
+				lrsv[i] -= lrsv[0U];
+			}
+			lrsv[0U] = 0U;
+
+			/* we need one more sample step because the
+			 * condition above that got us here goes one
+			 * step further than it should, lest we print
+			 * the ellipsis when there's exactly
+			 * nheader + nfoooter lines in the buffer */
+		case BEEF:
+			for (const char *x;
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+			     ibuf = x - buf + 1U, nfln++) {
+				/* keep with propability nfixed / nfln */
+				if (pcg32_boundedrand(nfln) < nfixed) {
+					/* drop a random sample from the tail */
+					const size_t j =
+						pcg32_boundedrand(nfixed);
+					/* line length at J */
+					const size_t z =
+						lrsv[j + 1U] - lrsv[j + 0U];
+					/* current line length */
+					const size_t y = x - buf + 1U - ibuf;
+
+					memmove(rsv + lrsv[j + 0U],
+						rsv + lrsv[j + 1U],
+						lrsv[nfixed] - lrsv[j + 1U]);
+
+					for (size_t i = j + 1U;
+					     i <= nfixed; i++) {
+						lrsv[i - 1U] = lrsv[i] - z;
+					}
+					/* bang this line */
+					MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
+						buf + ibuf, y);
+					/* and memorise him */
+					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
+				} else if (nfln > 4U * nfixed) {
+					/* switch to gap sampling */
+					goto bexp;
+				}
+			}
+			goto over;
+
+		bexp:
+			gap = nfln + rexp32(nfln - nfixed, nfln);
+			state = BEXP;
+		case BEXP:
+			for (const char *x;
+			     nfln < gap &&
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+			     ibuf = x - buf + 1U, nfln++);
+			for (const char *x;
+			     nfln >= gap &&
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
+				) {
+				/* drop a random sample from the tail */
+				const size_t j = pcg32_boundedrand(nfixed);
+				/* line length at J */
+				const size_t z = lrsv[j + 1U] - lrsv[j + 0U];
+				/* current line length */
+				const size_t y = x - buf + 1U - ibuf;
+
+				memmove(rsv + lrsv[j + 0U],
+					rsv + lrsv[j + 1U],
+					lrsv[nfixed] - lrsv[j + 1U]);
+
+				for (size_t i = j + 1U;
+				     i <= nfixed; i++) {
+					lrsv[i - 1U] = lrsv[i] - z;
+				}
+				/* bang this line */
+				MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
+					buf + ibuf, y);
+				/* and memorise him */
+				lrsv[nfixed] = lrsv[nfixed - 1U] + y;
+
+				ibuf = x - buf + 1U;
+				nfln++;
+				goto bexp;
+			}
+			goto over;
+
+		over:
+			/* beef buffer overrun */
+			if (UNLIKELY(!ibuf)) {
+				/* resize and retry */
+				const size_t nuz = zbuf * 2U;
+				char *tmp = realloc(buf, nuz);
+
+				if (UNLIKELY(tmp == NULL)) {
+					return -1;
+				}
+				/* otherwise assign and retry */
+				buf = tmp;
+				zbuf = nuz;
+				break;
+			}
+			memmove(buf, buf + ibuf, nbuf - ibuf);
+			nbuf -= ibuf;
+			ibuf -= ibuf;
+			break;
+		}
+	}
+	fwrite(rsv + lrsv[0U], sizeof(*rsv), lrsv[nfixed] - lrsv[0U], stdout);
+	fwrite("...\n", 1, 4U, stdout);
+	return 0;
+}
+
+static int
 sample(const char *fn)
 {
 	int(*sample)(int) = sample_gen;
@@ -637,7 +884,11 @@ sample(const char *fn)
 	int fd;
 
 	if (nfixed) {
-		sample = sample_rsv;
+		if (!nfooter) {
+			sample = sample_rsv_0f;
+		} else {
+			sample = sample_rsv;
+		}
 	}
 
 	if (fn == NULL || fn[0U] == '-' && fn[1U] == '\0') {
