@@ -81,18 +81,18 @@ error(const char *fmt, ...)
 	return;
 }
 
-static unsigned int
+static inline unsigned int
 runif32(void)
 {
 	return pcg32_random();
 }
 
 static unsigned int
-rexp32(unsigned int r, unsigned int d)
+rexp32(unsigned int n, unsigned int d)
 {
-	unsigned int u = runif32();
-	double p = log((double)u / (double)UINT32_MAX);
-	return (unsigned int)(p / log((double)(r - d) / (double)r));
+	double u = (double)runif32() / (double)UINT32_MAX;
+	double lambda = log((double)n / (double)d);
+	return (unsigned int)(log1p(-u) / lambda);
 }
 
 
@@ -517,7 +517,7 @@ sample_rsv(int fd)
 			goto over;
 
 		bexp:
-			gap = nfln + rexp32(nfln, nfixed);
+			gap = nfln + rexp32(nfln - nfixed, nfln);
 			state = BEXP;
 		case BEXP:
 			for (const char *x;
