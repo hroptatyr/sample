@@ -991,7 +991,10 @@ Error: sample rate in percent must be <=100");
 	if (argi->fixed_arg) {
 		char *on;
 		nfixed = strtoul(argi->fixed_arg, &on, 0);
-		if (!nfixed || *on) {
+		if (!nfixed && !*on) {
+			/* they want no randomness, just use zero rate */
+			rate = 0U;
+		} else if (!nfixed || *on) {
 			errno = 0, error("\
 Error: parameter to --fixed must be positive");
 			rc = 1;
