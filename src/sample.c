@@ -441,7 +441,7 @@ sample_rsv(int fd)
 		case FILL:
 			for (const char *x;
 			     nfln < nfixed &&
-				     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));
+				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 			     nfln++) {
 				/* keep track of footers */
 				lrsv[nfln] = ibuf;
@@ -479,7 +479,6 @@ sample_rsv(int fd)
 			} while (0)
 
 		beef:
-			fwrite("...\n", 1, 4U, stdout);
 			state = BEEF;
 			/* take on the reservoir */
 			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U],
@@ -603,6 +602,9 @@ sample_rsv(int fd)
 					buf = tmp;
 					zbuf = nuz;
 					break;
+				} else if (nfln < nfixed + nfooter) {
+					MEMZCPY(rsv, 0U, zrsv, buf, ibuf);
+					break;
 				}
 				memmove(buf, buf + nu, nbuf - nu);
 				for (size_t i = 0U; i < countof(last); i++) {
@@ -616,13 +618,25 @@ sample_rsv(int fd)
 			break;
 		}
 	}
-	fwrite(rsv + lrsv[0U], sizeof(*rsv), lrsv[nfixed] - lrsv[0U], stdout);
 	if (nfln > nfixed + nfooter) {
-		fwrite("...\n", 1, 4U, stdout);
-	}
-	{
+		const size_t z = lrsv[nfixed];
 		const size_t beg = LAST(nfln - nfooter - 0U);
 		const size_t end = LAST(nfln - nfooter - 1U);
+
+		fwrite("...\n", 1, 4U, stdout);
+		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
+		fwrite("...\n", 1, 4U, stdout);
+		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	} else if (nfln > nfooter) {
+		const size_t z = lrsv[nfln - nfooter];
+		const size_t beg = LAST(nfln - nfooter - 0U);
+		const size_t end = LAST(nfln - nfooter - 1U);
+
+		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
+		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	} else {
+		const size_t beg = last[0U];
+		const size_t end = last[nfln];
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
 	}
 	return 0;
@@ -731,7 +745,7 @@ sample_rsv_0f(int fd)
 			state = FILL;
 		case FILL:
 			for (const char *x;
-			     (x = memchr(buf +ibuf, '\n', nbuf - ibuf));) {
+			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
 				lrsv[nfln++] = ibuf;
 				ibuf = ++x - buf;
@@ -760,7 +774,6 @@ sample_rsv_0f(int fd)
 			} while (0)
 
 		beef:
-			fwrite("...\n", 1, 4U, stdout);
 			state = BEEF;
 			/* take on the reservoir */
 			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U], ibuf - lrsv[0U]);
@@ -863,6 +876,8 @@ sample_rsv_0f(int fd)
 				buf = tmp;
 				zbuf = nuz;
 				break;
+			} else if (nfln <= nfixed) {
+				break;
 			}
 			memmove(buf, buf + ibuf, nbuf - ibuf);
 			nbuf -= ibuf;
@@ -870,8 +885,20 @@ sample_rsv_0f(int fd)
 			break;
 		}
 	}
-	fwrite(rsv + lrsv[0U], sizeof(*rsv), lrsv[nfixed] - lrsv[0U], stdout);
-	fwrite("...\n", 1, 4U, stdout);
+	if (nfln > nfixed) {
+		const size_t z = lrsv[nfixed];
+
+		fwrite("...\n", 1, 4U, stdout);
+		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
+		fwrite("...\n", 1, 4U, stdout);
+	} else if (nfln == nfixed) {
+		/* we ran 0 steps through beef */
+		const size_t z = lrsv[nfixed];
+
+		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
+	} else {
+		fwrite(buf + lrsv[0U], sizeof(*buf), ibuf - lrsv[0U], stdout);
+	}
 	return 0;
 }
 
