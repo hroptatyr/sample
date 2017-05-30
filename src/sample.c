@@ -618,21 +618,22 @@ sample_rsv(int fd)
 			break;
 		}
 	}
-	if (nfln > nfixed + nfooter) {
+	if (nfln >= nfixed + nfooter) {
 		const size_t z = lrsv[nfixed];
 		const size_t beg = LAST(nfln - nfooter - 0U);
 		const size_t end = LAST(nfln - nfooter - 1U);
 
-		fwrite("...\n", 1, 4U, stdout);
+		if (nfln > nfixed + nfooter) {
+			fwrite("...\n", 1, 4U, stdout);
+		}
 		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
-		fwrite("...\n", 1, 4U, stdout);
+		if (nfln > nfixed + nfooter) {
+			fwrite("...\n", 1, 4U, stdout);
+		}
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
 	} else if (nfln > nfooter) {
-		const size_t z = lrsv[nfln - nfooter];
-		const size_t beg = LAST(nfln - nfooter - 0U);
+		const size_t beg = lrsv[0U];
 		const size_t end = LAST(nfln - nfooter - 1U);
-
-		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
 	} else if (nfln) {
 		const size_t beg = last[0U];
