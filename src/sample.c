@@ -127,8 +127,6 @@ sample_gen(int fd)
 	size_t nfln = 0U;
 	/* number of output lines so far */
 	size_t noln = 0U;
-	/* ring buffer index */
-	size_t nftr = 0U;
 	/* fill of BUF, also used as offset of end-of-header in HDR mode */
 	size_t nbuf = 0U;
 	/* index into BUF to the beginning of the last unprocessed line */
@@ -137,6 +135,7 @@ sample_gen(int fd)
 	ssize_t nrd;
 	/* offsets to footer */
 	size_t last[nfooter + 1U];
+#define LAST(x)		last[(x) % countof(last)]
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -155,8 +154,6 @@ sample_gen(int fd)
 		buf = tmp;
 		zbuf = BUFSIZ;
 	}
-	/* clean up last array */
-	memset(last, 0, sizeof(last));
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
@@ -241,15 +238,15 @@ sample_gen(int fd)
 
 		tail:
 			state = TAIL;
+			nfln = 0U;
 		case TAIL:
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
-				last[nftr] = ibuf;
-				nftr = (nftr + 1U) % countof(last);
+				LAST(nfln) = ibuf;
 				ibuf = ++x - buf;
 
-				if (++nfln > nheader + nfooter && rate) {
+				if (++nfln > nfooter && rate) {
 					goto beef;
 				}
 			}
@@ -269,18 +266,16 @@ sample_gen(int fd)
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
-				last[nftr] = ibuf;
-				nftr = (nftr + 1U) % countof(last);
+				LAST(nfln) = ibuf;
 				ibuf = ++x - buf;
 
 				nfln++;
 
-#define LAST(x)		last[(x) % countof(last)]
 			sample:
 				/* sample */
 				if (pcg32_random() < rate) {
-					const size_t this = last[nftr];
-					const size_t next = LAST(nftr + 1U);
+					const size_t this = LAST(nfln + 0U);
+					const size_t next = LAST(nfln + 1U);
 
 					fwrite(buf + this, sizeof(*buf),
 					       next - this, stdout);
@@ -291,7 +286,8 @@ sample_gen(int fd)
 
 		over:
 			/* beef buffer overrun */
-			with (const size_t nu = last[nftr]) {
+			with (const size_t nu = nfln > nfooter
+			      ? LAST(nfln) : 0U) {
 				if (UNLIKELY(!nu)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
@@ -313,26 +309,24 @@ sample_gen(int fd)
 				ibuf -= nu;
 			}
 			/* keep track of last footer */
-			last[nftr] = ibuf;
+			LAST(nfln) = ibuf;
 			break;
 		}
 	}
-	if (LIKELY(nfln > nheader + nfooter)) {
-		nftr++;
-	} else {
-		nftr = 0U;
-	}
 	if (noln > nheader ||
-	    !rate && nfln > nheader + nfooter) {
+	    !rate && nfln > nfooter) {
 		fwrite("...\n", 1, 4U, stdout);
 	}
 	/* fast forward footer if there wasn't enough lines */
-	for (size_t i = nftr, this, next;
-	     i <= nftr + nfooter &&
-		     (this = LAST(i), next = LAST(i + 1U), this < next);
-	     i++) {
-		fwrite(buf + this, sizeof(*buf), next - this, stdout);
-	}
+	if (nfln > nfooter) {
+		const size_t beg = LAST(nfln - nfooter - 0U);
+		const size_t end = LAST(nfln - nfooter - 1U);
+		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	} else if (nfln) {
+		const size_t beg = last[0U];
+		const size_t end = last[nfln];
+		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	}		
 	return 0;
 }
 
@@ -383,7 +377,6 @@ sample_rsv(int fd)
 		zrsv = BUFSIZ;
 	}
 	/* clean up last and lrsv array */
-	memset(last, 0, sizeof(last));
 	memset(lrsv, 0, sizeof(lrsv));
 
 	/* deal with header */
@@ -592,7 +585,8 @@ sample_rsv(int fd)
 
 		over:
 			/* beef buffer overrun */
-			with (const size_t nu = LAST(nfln)) {
+			with (const size_t nu = nfln > nfooter
+			      ? LAST(nfln) : 0U) {
 				if (UNLIKELY(!nu)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
@@ -637,7 +631,7 @@ sample_rsv(int fd)
 
 		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
-	} else {
+	} else if (nfln) {
 		const size_t beg = last[0U];
 		const size_t end = last[nfln];
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
@@ -899,7 +893,7 @@ sample_rsv_0f(int fd)
 		const size_t z = lrsv[nfixed];
 
 		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
-	} else {
+	} else if (ibuf > lrsv[0U]) {
 		fwrite(buf + lrsv[0U], sizeof(*buf), ibuf - lrsv[0U], stdout);
 	}
 	return 0;
