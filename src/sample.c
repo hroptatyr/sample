@@ -110,6 +110,8 @@ init_rng(uint64_t seed)
 
 	if (!seed) {
 		seed = time(NULL);
+		seed <<= 20U;
+		seed ^= getpid();
 		stid = (intptr_t)&seed;
 	}
 	pcg32_srandom(seed, stid);
