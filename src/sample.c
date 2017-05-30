@@ -49,6 +49,7 @@
 #include <time.h>
 #include <math.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <assert.h>
 #include "pcg_basic.h"
 #include "nifty.h"
@@ -966,6 +967,25 @@ main(int argc, char *argv[])
 	if (argi->footer_arg) {
 		nfooter = strtoul(argi->footer_arg, NULL, 0);
 	}
+
+	/* treat ttys specially */
+	if (isatty(STDOUT_FILENO) && !argi->rate_arg) {
+#if defined TIOCGWINSZ
+		with (struct winsize ws) {
+			if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) < 0) {
+				/* proceed as usual */
+				break;
+			} else if (nheader + nfooter + 5 >= ws.ws_row) {
+				/* not enough room */
+				break;
+			}
+			/* otherwise switch to -N mode,
+			 * leave some room for ellipsis, prompt and stuff */
+			nfixed = ws.ws_row - (nheader + nfooter + 5);
+		}
+#endif	/* TIOCGWINSZ */
+	}
+
 	if (argi->rate_arg) {
 		char *on;
 		double x = strtod(argi->rate_arg, &on);
