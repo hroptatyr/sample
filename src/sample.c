@@ -139,6 +139,7 @@ sample_gen(int fd)
 	/* offsets to footer */
 	size_t last[nfooter + 1U];
 #define LAST(x)		last[(x) % countof(last)]
+#define FIRST(x)	((x) > nfooter ? LAST(x) : 0U)
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -221,7 +222,10 @@ sample_gen(int fd)
 			goto wrap;
 
 		wrap:
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* we've got enough buffer, use, him */
+				break;
+			} else if (UNLIKELY(!ibuf)) {
 				/* great, try a resize */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -289,9 +293,11 @@ sample_gen(int fd)
 
 		over:
 			/* beef buffer overrun */
-			with (const size_t nu = nfln > nfooter
-			      ? LAST(nfln) : 0U) {
-				if (UNLIKELY(!nu)) {
+			with (const size_t nu = FIRST(nfln)) {
+				if (LIKELY(nbuf < zbuf / 2U)) {
+					/* just read more stuff */
+					break;
+				} else if (UNLIKELY(!nu)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
 					char *tmp = realloc(buf, nuz);
@@ -416,7 +422,10 @@ sample_rsv(int fd)
 			goto wrap;
 
 		wrap:
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* no need for buffer juggling */
+				break;
+			} else 	if (UNLIKELY(!ibuf)) {
 				/* great, try a resize */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -588,9 +597,11 @@ sample_rsv(int fd)
 
 		over:
 			/* beef buffer overrun */
-			with (const size_t nu = nfln > nfooter
-			      ? LAST(nfln) : 0U) {
-				if (UNLIKELY(!nu)) {
+			with (const size_t nu = FIRST(nfln)) {
+				if (LIKELY(nbuf < zbuf / 2U)) {
+					/* just read more stuff */
+					break;
+				} else if (UNLIKELY(!nu)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
 					char *tmp = realloc(buf, nuz);
@@ -602,8 +613,7 @@ sample_rsv(int fd)
 					buf = tmp;
 					zbuf = nuz;
 					break;
-				} else if (nfln < nfixed + nfooter) {
-					MEMZCPY(rsv, 0U, zrsv, buf, ibuf);
+				} else if (nfln <= nfixed + nfooter) {
 					break;
 				}
 				memmove(buf, buf + nu, nbuf - nu);
@@ -723,7 +733,10 @@ sample_rsv_0f(int fd)
 			goto wrap;
 
 		wrap:
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* just read some more */
+				break;
+			} else if (UNLIKELY(!ibuf)) {
 				/* great, try a resize */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -865,7 +878,10 @@ sample_rsv_0f(int fd)
 
 		over:
 			/* beef buffer overrun */
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* we'll risk reading some more */
+				break;
+			} else if (UNLIKELY(!ibuf)) {
 				/* resize and retry */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
