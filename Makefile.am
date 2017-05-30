@@ -14,6 +14,7 @@ doc_DATA =
 SUBDIRS += build-aux
 SUBDIRS += src
 SUBDIRS += test
+SUBDIRS += info
 
 DISTCLEANFILES += version.mk
 DISTCLEANFILES += .version
