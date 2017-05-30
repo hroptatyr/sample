@@ -50,6 +50,7 @@
 #include <math.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/resource.h>
 #include <assert.h>
 #include "pcg_basic.h"
 #include "nifty.h"
@@ -63,6 +64,8 @@ static size_t nheader = 5U;
 static size_t nfooter = 5U;
 static unsigned int rate = UINT32_MAX / 10U;
 static size_t nfixed;
+/* limit for VLAs */
+static size_t stklmt;
 
 
 static void
@@ -1033,6 +1036,16 @@ Error: seeds must be positive integers");
 		/* initialise randomness */
 		init_rng(s);
 	}
+
+	/* obtain stack limits */
+	with (struct rlimit lmt) {
+		if (getrlimit(RLIMIT_STACK, &lmt) < 0) {
+			/* yeah right */
+			break;
+		}
+		stklmt = lmt.rlim_cur / sizeof(stklmt) / 2U;
+	}
+
 
 	for (size_t i = 0U; i < argi->nargs + !argi->nargs; i++) {
 		rc |= sample(argi->args[i]) < 0;
