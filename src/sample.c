@@ -166,7 +166,7 @@ sample_gen(int fd)
 		zbuf = BUFSIZ;
 	}
 
-	if (nfooter >= stklmt) {
+	if (nfooter >= countof(last)) {
 		/* better do it with heap space */
 		last = malloc((nfooter + 1U) * sizeof(*last));
 	}
@@ -372,10 +372,11 @@ sample_rsv(int fd)
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
-	size_t _last[stklmt];
+	size_t _last[stklmt / 2U];
 	size_t *last = _last;
 	/* reservoir lines */
-	size_t lrsv[nfixed + 1U];
+	size_t _lrsv[stklmt / 2U];
+	size_t *lrsv = _lrsv;
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -403,12 +404,14 @@ sample_rsv(int fd)
 		rsv = tmp;
 		zrsv = BUFSIZ;
 	}
-	if (nfooter >= stklmt) {
+	if (nfooter >= countof(_last)) {
 		/* do him with heap space */
 		last = malloc((nfooter + 1U) * sizeof(*last));
 	}
-	/* clean up last and lrsv array */
-	memset(lrsv, 0, sizeof(lrsv));
+	if (nfixed >= countof(_lrsv)) {
+		/* do her with heap space */
+		lrsv = malloc((nfixed + 1U) * sizeof(*lrsv));
+	}
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
@@ -677,6 +680,9 @@ sample_rsv(int fd)
 	if (last != _last) {
 		free(last);
 	}
+	if (lrsv != _lrsv) {
+		free(lrsv);
+	}
 	return 0;
 }
 
@@ -695,7 +701,8 @@ sample_rsv_0f(int fd)
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* reservoir lines */
-	size_t lrsv[nfixed + 1U];
+	size_t _lrsv[stklmt];
+	size_t *lrsv = _lrsv;
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -723,8 +730,10 @@ sample_rsv_0f(int fd)
 		rsv = tmp;
 		zrsv = BUFSIZ;
 	}
-	/* clean up lrsv array */
-	memset(lrsv, 0, sizeof(lrsv));
+	if (nfixed >= countof(_lrsv)) {
+		/* do her with heap space */
+		lrsv = malloc((nfixed + 1U) * sizeof(*lrsv));
+	}
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
@@ -942,6 +951,9 @@ sample_rsv_0f(int fd)
 		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
 	} else if (ibuf > lrsv[0U]) {
 		fwrite(buf + lrsv[0U], sizeof(*buf), ibuf - lrsv[0U], stdout);
+	}
+	if (lrsv != _lrsv) {
+		free(lrsv);
 	}
 	return 0;
 }
