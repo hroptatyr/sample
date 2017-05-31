@@ -50,6 +50,7 @@
 #include <math.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/resource.h>
 #include <assert.h>
 #include "pcg_basic.h"
 #include "nifty.h"
@@ -63,6 +64,8 @@ static size_t nheader = 5U;
 static size_t nfooter = 5U;
 static unsigned int rate = UINT32_MAX / 10U;
 static size_t nfixed;
+/* limit for VLAs */
+static size_t stklmt;
 
 
 static void
@@ -94,6 +97,12 @@ rexp32(unsigned int n, unsigned int d)
 	double u = (double)runif32() / (double)UINT32_MAX;
 	double lambda = log((double)n / (double)d);
 	return (unsigned int)(log1p(-u) / lambda);
+}
+
+static inline __attribute__((pure, const)) size_t
+min_z(size_t z1, size_t z2)
+{
+	return z1 <= z2 ? z1 : z2;
 }
 
 
@@ -134,8 +143,6 @@ sample_gen(int fd)
 	size_t nfln = 0U;
 	/* number of output lines so far */
 	size_t noln = 0U;
-	/* ring buffer index */
-	size_t nftr = 0U;
 	/* fill of BUF, also used as offset of end-of-header in HDR mode */
 	size_t nbuf = 0U;
 	/* index into BUF to the beginning of the last unprocessed line */
@@ -143,7 +150,10 @@ sample_gen(int fd)
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
-	size_t last[nfooter + 1U];
+	size_t _last[stklmt];
+	size_t *last = _last;
+#define LAST(x)		last[(x) % (nfooter + 1U)]
+#define FIRST(x)	((x) > nfooter ? LAST(x) : 0U)
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -162,8 +172,11 @@ sample_gen(int fd)
 		buf = tmp;
 		zbuf = BUFSIZ;
 	}
-	/* clean up last array */
-	memset(last, 0, sizeof(last));
+
+	if (nfooter >= countof(last)) {
+		/* better do it with heap space */
+		last = malloc((nfooter + 1U) * sizeof(*last));
+	}
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
@@ -228,7 +241,10 @@ sample_gen(int fd)
 			goto wrap;
 
 		wrap:
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* we've got enough buffer, use, him */
+				break;
+			} else if (UNLIKELY(!ibuf)) {
 				/* great, try a resize */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -248,15 +264,15 @@ sample_gen(int fd)
 
 		tail:
 			state = TAIL;
+			nfln = 0U;
 		case TAIL:
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
-				last[nftr] = ibuf;
-				nftr = (nftr + 1U) % countof(last);
+				LAST(nfln) = ibuf;
 				ibuf = ++x - buf;
 
-				if (++nfln > nheader + nfooter && rate) {
+				if (++nfln > nfooter && rate) {
 					goto beef;
 				}
 			}
@@ -276,18 +292,16 @@ sample_gen(int fd)
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
 				/* keep track of footers */
-				last[nftr] = ibuf;
-				nftr = (nftr + 1U) % countof(last);
+				LAST(nfln) = ibuf;
 				ibuf = ++x - buf;
 
 				nfln++;
 
-#define LAST(x)		last[(x) % countof(last)]
 			sample:
 				/* sample */
 				if (pcg32_random() < rate) {
-					const size_t this = last[nftr];
-					const size_t next = LAST(nftr + 1U);
+					const size_t this = LAST(nfln + 0U);
+					const size_t next = LAST(nfln + 1U);
 
 					fwrite(buf + this, sizeof(*buf),
 					       next - this, stdout);
@@ -297,9 +311,12 @@ sample_gen(int fd)
 			goto over;
 
 		over:
-			/* beef buffer overrun */
-			with (const size_t nu = last[nftr]) {
-				if (UNLIKELY(!nu)) {
+			/* beef buffer overrun handling */
+			with (const size_t frst = FIRST(nfln)) {
+				if (LIKELY(nbuf < zbuf / 2U)) {
+					/* just read more stuff */
+					break;
+				} else if (UNLIKELY(!frst || frst == ibuf)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
 					char *tmp = realloc(buf, nuz);
@@ -312,33 +329,36 @@ sample_gen(int fd)
 					zbuf = nuz;
 					break;
 				}
-				memmove(buf, buf + nu, nbuf - nu);
-				for (size_t i = 0U; i < countof(last); i++) {
-					last[i] -= nu;
+				memmove(buf, buf + frst, nbuf - frst);
+				for (size_t i = 0U,
+					     n = min_z(nfooter + 1U, nfln);
+				     i < n; i++) {
+					last[i] -= frst;
 				}
-				nbuf -= nu;
-				ibuf -= nu;
+				nbuf -= frst;
+				ibuf -= frst;
 			}
 			/* keep track of last footer */
-			last[nftr] = ibuf;
+			LAST(nfln) = ibuf;
 			break;
 		}
 	}
-	if (LIKELY(nfln > nheader + nfooter)) {
-		nftr++;
-	} else {
-		nftr = 0U;
-	}
 	if (noln > nheader ||
-	    !rate && nfln > nheader + nfooter) {
+	    !rate && nfln > nfooter) {
 		fwrite("...\n", 1, 4U, stdout);
 	}
 	/* fast forward footer if there wasn't enough lines */
-	for (size_t i = nftr, this, next;
-	     i <= nftr + nfooter &&
-		     (this = LAST(i), next = LAST(i + 1U), this < next);
-	     i++) {
-		fwrite(buf + this, sizeof(*buf), next - this, stdout);
+	if (nfln > nfooter) {
+		const size_t beg = LAST(nfln - nfooter - 0U);
+		const size_t end = LAST(nfln - nfooter - 1U);
+		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	} else if (nfln) {
+		const size_t beg = last[0U];
+		const size_t end = last[nfln];
+		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	}		
+	if (last != _last) {
+		free(last);
 	}
 	return 0;
 }
@@ -359,9 +379,11 @@ sample_rsv(int fd)
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
-	size_t last[nfooter + 1U];
+	size_t _last[stklmt / 2U];
+	size_t *last = _last;
 	/* reservoir lines */
-	size_t lrsv[nfixed + 1U];
+	size_t _lrsv[stklmt / 2U];
+	size_t *lrsv = _lrsv;
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -389,9 +411,14 @@ sample_rsv(int fd)
 		rsv = tmp;
 		zrsv = BUFSIZ;
 	}
-	/* clean up last and lrsv array */
-	memset(last, 0, sizeof(last));
-	memset(lrsv, 0, sizeof(lrsv));
+	if (nfooter >= countof(_last)) {
+		/* do him with heap space */
+		last = malloc((nfooter + 1U) * sizeof(*last));
+	}
+	if (nfixed >= countof(_lrsv)) {
+		/* do her with heap space */
+		lrsv = malloc((nfixed + 1U) * sizeof(*lrsv));
+	}
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
@@ -400,9 +427,7 @@ sample_rsv(int fd)
 
 		switch (state) {
 		case EVAL:
-			if (!nfixed && !nheader) {
-				return 0;
-			} else if (!nheader) {
+			if (!nheader) {
 				goto fill;
 			}
 			/* otherwise let HEAD state decide */
@@ -427,7 +452,10 @@ sample_rsv(int fd)
 			goto wrap;
 
 		wrap:
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* no need for buffer juggling */
+				break;
+			} else 	if (UNLIKELY(!ibuf)) {
 				/* great, try a resize */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -599,8 +627,12 @@ sample_rsv(int fd)
 
 		over:
 			/* beef buffer overrun */
-			with (const size_t nu = LAST(nfln)) {
-				if (UNLIKELY(!nu)) {
+			with (const size_t frst = FIRST(nfln)) {
+				if (LIKELY(nbuf < zbuf / 2U)) {
+					/* just read more stuff */
+					break;
+				} else if (UNLIKELY(!frst || frst == ibuf ||
+						    nfln <= nfixed + nfooter)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
 					char *tmp = realloc(buf, nuz);
@@ -612,42 +644,48 @@ sample_rsv(int fd)
 					buf = tmp;
 					zbuf = nuz;
 					break;
-				} else if (nfln < nfixed + nfooter) {
-					MEMZCPY(rsv, 0U, zrsv, buf, ibuf);
-					break;
 				}
-				memmove(buf, buf + nu, nbuf - nu);
-				for (size_t i = 0U; i < countof(last); i++) {
-					last[i] -= nu;
+				memmove(buf, buf + frst, nbuf - frst);
+				for (size_t i = 0U,
+					     n = min_z(nfooter + 1U, nfln);
+				     i < n; i++) {
+					last[i] -= frst;
 				}
-				nbuf -= nu;
-				ibuf -= nu;
+				nbuf -= frst;
+				ibuf -= frst;
 			}
 			/* keep track of last footer */
 			LAST(nfln) = ibuf;
 			break;
 		}
 	}
-	if (nfln > nfixed + nfooter) {
+	if (nfln >= nfixed + nfooter) {
 		const size_t z = lrsv[nfixed];
 		const size_t beg = LAST(nfln - nfooter - 0U);
 		const size_t end = LAST(nfln - nfooter - 1U);
 
-		fwrite("...\n", 1, 4U, stdout);
+		if (nfln > nfixed + nfooter) {
+			fwrite("...\n", 1, 4U, stdout);
+		}
 		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
-		fwrite("...\n", 1, 4U, stdout);
+		if (nfln > nfixed + nfooter) {
+			fwrite("...\n", 1, 4U, stdout);
+		}
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
 	} else if (nfln > nfooter) {
-		const size_t z = lrsv[nfln - nfooter];
-		const size_t beg = LAST(nfln - nfooter - 0U);
+		const size_t beg = lrsv[0U];
 		const size_t end = LAST(nfln - nfooter - 1U);
-
-		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
-	} else {
+	} else if (nfln) {
 		const size_t beg = last[0U];
 		const size_t end = last[nfln];
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	}
+	if (last != _last) {
+		free(last);
+	}
+	if (lrsv != _lrsv) {
+		free(lrsv);
 	}
 	return 0;
 }
@@ -667,7 +705,8 @@ sample_rsv_0f(int fd)
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* reservoir lines */
-	size_t lrsv[nfixed + 1U];
+	size_t _lrsv[stklmt];
+	size_t *lrsv = _lrsv;
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -695,8 +734,10 @@ sample_rsv_0f(int fd)
 		rsv = tmp;
 		zrsv = BUFSIZ;
 	}
-	/* clean up lrsv array */
-	memset(lrsv, 0, sizeof(lrsv));
+	if (nfixed >= countof(_lrsv)) {
+		/* do her with heap space */
+		lrsv = malloc((nfixed + 1U) * sizeof(*lrsv));
+	}
 
 	/* deal with header */
 	while ((nrd = read(fd, buf + nbuf, zbuf - nbuf)) > 0) {
@@ -705,9 +746,7 @@ sample_rsv_0f(int fd)
 
 		switch (state) {
 		case EVAL:
-			if (!nfixed && !nheader) {
-				return 0;
-			} else if (!nheader) {
+			if (!nheader) {
 				goto fill;
 			}
 			/* otherwise let HEAD state decide */
@@ -732,7 +771,10 @@ sample_rsv_0f(int fd)
 			goto wrap;
 
 		wrap:
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* just read some more */
+				break;
+			} else if (UNLIKELY(!ibuf)) {
 				/* great, try a resize */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -874,7 +916,10 @@ sample_rsv_0f(int fd)
 
 		over:
 			/* beef buffer overrun */
-			if (UNLIKELY(!ibuf)) {
+			if (LIKELY(nbuf < zbuf / 2U)) {
+				/* we'll risk reading some more */
+				break;
+			} else if (UNLIKELY(!ibuf || nfln <= nfixed)) {
 				/* resize and retry */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -885,8 +930,6 @@ sample_rsv_0f(int fd)
 				/* otherwise assign and retry */
 				buf = tmp;
 				zbuf = nuz;
-				break;
-			} else if (nfln <= nfixed) {
 				break;
 			}
 			memmove(buf, buf + ibuf, nbuf - ibuf);
@@ -906,8 +949,11 @@ sample_rsv_0f(int fd)
 		const size_t z = lrsv[nfixed];
 
 		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
-	} else {
+	} else if (ibuf > lrsv[0U]) {
 		fwrite(buf + lrsv[0U], sizeof(*buf), ibuf - lrsv[0U], stdout);
+	}
+	if (lrsv != _lrsv) {
+		free(lrsv);
 	}
 	return 0;
 }
@@ -1048,6 +1094,16 @@ Error: seeds must be positive integers");
 		/* initialise randomness */
 		init_rng(s);
 	}
+
+	/* obtain stack limits */
+	with (struct rlimit lmt) {
+		if (getrlimit(RLIMIT_STACK, &lmt) < 0) {
+			/* yeah right */
+			break;
+		}
+		stklmt = lmt.rlim_cur / sizeof(stklmt) / 2U;
+	}
+
 
 	for (size_t i = 0U; i < argi->nargs + !argi->nargs; i++) {
 		rc |= sample(argi->args[i]) < 0;
