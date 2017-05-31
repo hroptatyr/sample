@@ -420,9 +420,7 @@ sample_rsv(int fd)
 
 		switch (state) {
 		case EVAL:
-			if (!nfixed && !nheader) {
-				return 0;
-			} else if (!nheader) {
+			if (!nheader) {
 				goto fill;
 			}
 			/* otherwise let HEAD state decide */
@@ -742,9 +740,7 @@ sample_rsv_0f(int fd)
 
 		switch (state) {
 		case EVAL:
-			if (!nfixed && !nheader) {
-				return 0;
-			} else if (!nheader) {
+			if (!nheader) {
 				goto fill;
 			}
 			/* otherwise let HEAD state decide */
