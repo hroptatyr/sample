@@ -624,7 +624,8 @@ sample_rsv(int fd)
 				if (LIKELY(nbuf < zbuf / 2U)) {
 					/* just read more stuff */
 					break;
-				} else if (UNLIKELY(!frst || frst == ibuf)) {
+				} else if (UNLIKELY(!frst || frst == ibuf ||
+						    nfln <= nfixed + nfooter)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
 					char *tmp = realloc(buf, nuz);
@@ -635,8 +636,6 @@ sample_rsv(int fd)
 					/* otherwise assign and retry */
 					buf = tmp;
 					zbuf = nuz;
-					break;
-				} else if (nfln <= nfixed + nfooter) {
 					break;
 				}
 				memmove(buf, buf + frst, nbuf - frst);
@@ -913,7 +912,7 @@ sample_rsv_0f(int fd)
 			if (LIKELY(nbuf < zbuf / 2U)) {
 				/* we'll risk reading some more */
 				break;
-			} else if (UNLIKELY(!ibuf)) {
+			} else if (UNLIKELY(!ibuf || nfln <= nfixed)) {
 				/* resize and retry */
 				const size_t nuz = zbuf * 2U;
 				char *tmp = realloc(buf, nuz);
@@ -924,8 +923,6 @@ sample_rsv_0f(int fd)
 				/* otherwise assign and retry */
 				buf = tmp;
 				zbuf = nuz;
-				break;
-			} else if (nfln <= nfixed) {
 				break;
 			}
 			memmove(buf, buf + ibuf, nbuf - ibuf);
