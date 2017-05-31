@@ -643,8 +643,8 @@ sample_rsv(int fd)
 				}
 				memmove(buf, buf + frst, nbuf - frst);
 				for (size_t i = 0U,
-					     n = min_z(nfooter, nfln - 1U);
-				     i <= n; i++) {
+					     n = min_z(nfooter + 1U, nfln);
+				     i < n; i++) {
 					last[i] -= frst;
 				}
 				nbuf -= frst;
