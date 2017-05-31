@@ -99,6 +99,12 @@ rexp32(unsigned int n, unsigned int d)
 	return (unsigned int)(log1p(-u) / lambda);
 }
 
+static inline __attribute__((pure, const)) size_t
+min_z(size_t z1, size_t z2)
+{
+	return z1 <= z2 ? z1 : z2;
+}
+
 
 /* buffer */
 static char *buf;
@@ -298,12 +304,12 @@ sample_gen(int fd)
 			goto over;
 
 		over:
-			/* beef buffer overrun */
-			with (const size_t nu = FIRST(nfln)) {
+			/* beef buffer overrun handling */
+			with (const size_t frst = FIRST(nfln)) {
 				if (LIKELY(nbuf < zbuf / 2U)) {
 					/* just read more stuff */
 					break;
-				} else if (UNLIKELY(!nu)) {
+				} else if (UNLIKELY(!frst || frst == ibuf)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
 					char *tmp = realloc(buf, nuz);
@@ -316,12 +322,14 @@ sample_gen(int fd)
 					zbuf = nuz;
 					break;
 				}
-				memmove(buf, buf + nu, nbuf - nu);
-				for (size_t i = 0U; i <= nfooter; i++) {
-					last[i] -= nu;
+				memmove(buf, buf + frst, nbuf - frst);
+				for (size_t i = 0U,
+					     n = min_z(nfooter + 1U, nfln);
+				     i < n; i++) {
+					last[i] -= frst;
 				}
-				nbuf -= nu;
-				ibuf -= nu;
+				nbuf -= frst;
+				ibuf -= frst;
 			}
 			/* keep track of last footer */
 			LAST(nfln) = ibuf;
@@ -611,11 +619,11 @@ sample_rsv(int fd)
 
 		over:
 			/* beef buffer overrun */
-			with (const size_t nu = FIRST(nfln)) {
+			with (const size_t frst = FIRST(nfln)) {
 				if (LIKELY(nbuf < zbuf / 2U)) {
 					/* just read more stuff */
 					break;
-				} else if (UNLIKELY(!nu)) {
+				} else if (UNLIKELY(!frst || frst == ibuf)) {
 					/* resize and retry */
 					const size_t nuz = zbuf * 2U;
 					char *tmp = realloc(buf, nuz);
@@ -630,12 +638,14 @@ sample_rsv(int fd)
 				} else if (nfln <= nfixed + nfooter) {
 					break;
 				}
-				memmove(buf, buf + nu, nbuf - nu);
-				for (size_t i = 0U; i <= nfooter; i++) {
-					last[i] -= nu;
+				memmove(buf, buf + frst, nbuf - frst);
+				for (size_t i = 0U,
+					     n = min_z(nfooter, nfln - 1U);
+				     i <= n; i++) {
+					last[i] -= frst;
 				}
-				nbuf -= nu;
-				ibuf -= nu;
+				nbuf -= frst;
+				ibuf -= frst;
 			}
 			/* keep track of last footer */
 			LAST(nfln) = ibuf;
