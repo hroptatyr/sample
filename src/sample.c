@@ -137,8 +137,9 @@ sample_gen(int fd)
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
-	size_t last[nfooter + 1U];
-#define LAST(x)		last[(x) % countof(last)]
+	size_t _last[stklmt];
+	size_t *last = _last;
+#define LAST(x)		last[(x) % (nfooter + 1U)]
 #define FIRST(x)	((x) > nfooter ? LAST(x) : 0U)
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
@@ -157,6 +158,11 @@ sample_gen(int fd)
 		/* otherwise swap ptrs */
 		buf = tmp;
 		zbuf = BUFSIZ;
+	}
+
+	if (nfooter >= stklmt) {
+		/* better do it with heap space */
+		last = malloc((nfooter + 1U) * sizeof(*last));
 	}
 
 	/* deal with header */
@@ -311,7 +317,7 @@ sample_gen(int fd)
 					break;
 				}
 				memmove(buf, buf + nu, nbuf - nu);
-				for (size_t i = 0U; i < countof(last); i++) {
+				for (size_t i = 0U; i <= nfooter; i++) {
 					last[i] -= nu;
 				}
 				nbuf -= nu;
@@ -336,6 +342,9 @@ sample_gen(int fd)
 		const size_t end = last[nfln];
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
 	}		
+	if (last != _last) {
+		free(last);
+	}
 	return 0;
 }
 
@@ -355,7 +364,8 @@ sample_rsv(int fd)
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
-	size_t last[nfooter + 1U];
+	size_t _last[stklmt];
+	size_t *last = _last;
 	/* reservoir lines */
 	size_t lrsv[nfixed + 1U];
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
@@ -384,6 +394,10 @@ sample_rsv(int fd)
 		/* otherwise swap ptrs */
 		rsv = tmp;
 		zrsv = BUFSIZ;
+	}
+	if (nfooter >= stklmt) {
+		/* do him with heap space */
+		last = malloc((nfooter + 1U) * sizeof(*last));
 	}
 	/* clean up last and lrsv array */
 	memset(lrsv, 0, sizeof(lrsv));
@@ -617,7 +631,7 @@ sample_rsv(int fd)
 					break;
 				}
 				memmove(buf, buf + nu, nbuf - nu);
-				for (size_t i = 0U; i < countof(last); i++) {
+				for (size_t i = 0U; i <= nfooter; i++) {
 					last[i] -= nu;
 				}
 				nbuf -= nu;
@@ -649,6 +663,9 @@ sample_rsv(int fd)
 		const size_t beg = last[0U];
 		const size_t end = last[nfln];
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
+	}
+	if (last != _last) {
+		free(last);
 	}
 	return 0;
 }
