@@ -120,6 +120,13 @@ init_rng(uint64_t seed)
 }
 
 static int
+sample_0(int fd)
+{
+	(void)fd;
+	return 0;
+}
+
+static int
 sample_gen(int fd)
 {
 /* generic sampler */
@@ -919,6 +926,8 @@ sample(const char *fn)
 		} else {
 			sample = sample_rsv;
 		}
+	} else if (!rate && !nfooter && !nheader) {
+		sample = sample_0;
 	}
 
 	if (fn == NULL || fn[0U] == '-' && fn[1U] == '\0') {
