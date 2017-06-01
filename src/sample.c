@@ -94,7 +94,7 @@ runif32(void)
 static unsigned int
 rexp32(unsigned int n, unsigned int d)
 {
-	double u = (double)runif32() / (double)UINT32_MAX;
+	double u = (double)runif32() / 0x1.p32;
 	double lambda = log((double)n / (double)d);
 	return (unsigned int)(log1p(-u) / lambda);
 }
@@ -1063,7 +1063,7 @@ Error: sample rate in percent must be <=100");
 			x = 1. / x;
 		}
 
-		rate = (unsigned int)((double)UINT32_MAX * x);
+		rate = (unsigned int)(0x1.p32 * x);
 	}
 	if (argi->fixed_arg) {
 		char *on;
