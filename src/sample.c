@@ -393,6 +393,24 @@ sample_rsv(int fd)
 		BEXP,
 	} state = EVAL;
 
+#define MEMZCPY(tgt, off, tsz, src, len)				\
+			do {						\
+				const size_t nul = (off) + (len);	\
+				if (nul > (tsz)) {			\
+					size_t nuz = (tsz);		\
+					char *tmp;			\
+					while ((nuz *= 2U) < nul);	\
+					tmp = realloc((tgt), nuz);	\
+					if (UNLIKELY(tmp == NULL)) {	\
+						return -1;		\
+					}				\
+					/* otherwise assign */		\
+					(tgt) = tmp;			\
+					(tsz) = nuz;			\
+				}					\
+				memcpy((tgt) + (off), (src), (len));	\
+			} while (0)
+
 	with (char *tmp = realloc(buf, BUFSIZ)) {
 		if (UNLIKELY(tmp == NULL)) {
 			/* just bugger off */
@@ -498,23 +516,6 @@ sample_rsv(int fd)
 				}
 			}
 			goto over;
-
-#define MEMZCPY(tgt, off, tsz, src, len)				\
-			do {						\
-				if ((len) > (tsz)) {			\
-					size_t nuz = (tsz);		\
-					char *tmp;			\
-					while ((nuz *= 2U) < len);	\
-					tmp = realloc((tgt), nuz);	\
-					if (UNLIKELY(tmp == NULL)) {	\
-						return -1;		\
-					}				\
-					/* otherwise assign */		\
-					(tgt) = tmp;			\
-					(tsz) = nuz;			\
-				}					\
-				memcpy((tgt) + (off), src, len);	\
-			} while (0)
 
 		beef:
 			state = BEEF;
@@ -807,23 +808,6 @@ sample_rsv_0f(int fd)
 				}
 			}
 			goto over;
-
-#define MEMZCPY(tgt, off, tsz, src, len)				\
-			do {						\
-				if ((len) > (tsz)) {			\
-					size_t nuz = (tsz);		\
-					char *tmp;			\
-					while ((nuz *= 2U) < len);	\
-					tmp = realloc((tgt), nuz);	\
-					if (UNLIKELY(tmp == NULL)) {	\
-						return -1;		\
-					}				\
-					/* otherwise assign */		\
-					(tgt) = tmp;			\
-					(tsz) = nuz;			\
-				}					\
-				memcpy((tgt) + (off), src, len);	\
-			} while (0)
 
 		beef:
 			state = BEEF;
