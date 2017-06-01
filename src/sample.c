@@ -540,6 +540,11 @@ sample_rsv(int fd)
 				/* keep track of footers */
 				LAST(nfln) = ibuf;
 
+				if (nfln >= 4U * nfixed) {
+					/* switch to gap sampling */
+					goto bexp;
+				}
+
 				/* keep with propability nfixed / nfln */
 				if (pcg32_boundedrand(nfln) < nfixed) {
 					/* drop a random sample from the tail */
@@ -568,9 +573,6 @@ sample_rsv(int fd)
 						buf + LAST(nfln - nfooter), y);
 					/* and memorise him */
 					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
-				} else if (nfln > 4U * nfixed) {
-					/* switch to gap sampling */
-					goto bexp;
 				}
 			}
 			goto over;
@@ -827,6 +829,10 @@ sample_rsv_0f(int fd)
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 			     ibuf = x - buf + 1U, nfln++) {
+				if (nfln >= 4U * nfixed) {
+					/* switch to gap sampling */
+					goto bexp;
+				}
 				/* keep with propability nfixed / nfln */
 				if (pcg32_boundedrand(nfln) < nfixed) {
 					/* drop a random sample from the tail */
@@ -851,9 +857,6 @@ sample_rsv_0f(int fd)
 						buf + ibuf, y);
 					/* and memorise him */
 					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
-				} else if (nfln > 4U * nfixed) {
-					/* switch to gap sampling */
-					goto bexp;
 				}
 			}
 			goto over;
