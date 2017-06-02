@@ -62,7 +62,7 @@
 
 static size_t nheader = 5U;
 static size_t nfooter = 5U;
-static unsigned int rate = UINT32_MAX / 10U;
+static long long unsigned int rate = UINT32_MAX / 10U;
 static size_t nfixed;
 /* limit for VLAs */
 static size_t stklmt;
@@ -94,7 +94,7 @@ runif32(void)
 static unsigned int
 rexp32(unsigned int n, unsigned int d)
 {
-	double u = (double)runif32() / (double)UINT32_MAX;
+	double u = (double)runif32() / 0x1.p32;
 	double lambda = log((double)n / (double)d);
 	return (unsigned int)(log1p(-u) / lambda);
 }
@@ -185,7 +185,7 @@ sample_gen(int fd)
 
 		switch (state) {
 		case EVAL:
-			if (rate == UINT32_MAX) {
+			if (rate > UINT32_MAX) {
 				/* oh they want everything printed */
 				fwrite(buf, sizeof(*buf), nrd, stdout);
 				nbuf = 0U;
@@ -232,7 +232,7 @@ sample_gen(int fd)
 				nfln++;
 
 				/* sample */
-				if (pcg32_random() < rate) {
+				if (runif32() < rate) {
 					fwrite(buf + o, sizeof(*buf),
 					       ibuf - o, stdout);
 					noln++;
@@ -299,7 +299,7 @@ sample_gen(int fd)
 
 			sample:
 				/* sample */
-				if (pcg32_random() < rate) {
+				if (runif32() < rate) {
 					const size_t this = LAST(nfln + 0U);
 					const size_t next = LAST(nfln + 1U);
 
@@ -392,6 +392,24 @@ sample_rsv(int fd)
 		FILL,
 		BEXP,
 	} state = EVAL;
+
+#define MEMZCPY(tgt, off, tsz, src, len)				\
+			do {						\
+				const size_t nul = (off) + (len);	\
+				if (nul > (tsz)) {			\
+					size_t nuz = (tsz);		\
+					char *tmp;			\
+					while ((nuz *= 2U) < nul);	\
+					tmp = realloc((tgt), nuz);	\
+					if (UNLIKELY(tmp == NULL)) {	\
+						return -1;		\
+					}				\
+					/* otherwise assign */		\
+					(tgt) = tmp;			\
+					(tsz) = nuz;			\
+				}					\
+				memcpy((tgt) + (off), (src), (len));	\
+			} while (0)
 
 	with (char *tmp = realloc(buf, BUFSIZ)) {
 		if (UNLIKELY(tmp == NULL)) {
@@ -499,23 +517,6 @@ sample_rsv(int fd)
 			}
 			goto over;
 
-#define MEMZCPY(tgt, off, tsz, src, len)				\
-			do {						\
-				if ((len) > (tsz)) {			\
-					size_t nuz = (tsz);		\
-					char *tmp;			\
-					while ((nuz *= 2U) < len);	\
-					tmp = realloc((tgt), nuz);	\
-					if (UNLIKELY(tmp == NULL)) {	\
-						return -1;		\
-					}				\
-					/* otherwise assign */		\
-					(tgt) = tmp;			\
-					(tsz) = nuz;			\
-				}					\
-				memcpy((tgt) + (off), src, len);	\
-			} while (0)
-
 		beef:
 			state = BEEF;
 			/* take on the reservoir */
@@ -584,7 +585,6 @@ sample_rsv(int fd)
 			     ibuf = x - buf + 1U, nfln++) {
 				/* every line could be our last, so keep
 				 * track of them */
-				/* keep track of footers */
 				LAST(nfln) = ibuf;
 			}
 			for (const char *x;
@@ -807,23 +807,6 @@ sample_rsv_0f(int fd)
 				}
 			}
 			goto over;
-
-#define MEMZCPY(tgt, off, tsz, src, len)				\
-			do {						\
-				if ((len) > (tsz)) {			\
-					size_t nuz = (tsz);		\
-					char *tmp;			\
-					while ((nuz *= 2U) < len);	\
-					tmp = realloc((tgt), nuz);	\
-					if (UNLIKELY(tmp == NULL)) {	\
-						return -1;		\
-					}				\
-					/* otherwise assign */		\
-					(tgt) = tmp;			\
-					(tsz) = nuz;			\
-				}					\
-				memcpy((tgt) + (off), src, len);	\
-			} while (0)
 
 		beef:
 			state = BEEF;
@@ -1063,7 +1046,7 @@ Error: sample rate in percent must be <=100");
 			x = 1. / x;
 		}
 
-		rate = (unsigned int)((double)UINT32_MAX * x);
+		rate = (long long unsigned int)(0x1.p32 * x);
 	}
 	if (argi->fixed_arg) {
 		char *on;
