@@ -112,6 +112,9 @@ static size_t zbuf;
 /* reservoir */
 static char *rsv;
 static size_t zrsv;
+/* compactify */
+static uint8_t *comp;
+static size_t *idir;
 
 static int
 init_rng(uint64_t seed)
@@ -126,6 +129,62 @@ init_rng(uint64_t seed)
 	}
 	pcg32_srandom(seed, stid);
 	return 0;
+}
+
+static void
+compactify(size_t *restrict off, const size_t m, const size_t n)
+{
+/* helper for reservoir sampling
+ * compact M lines into N whose offsets are in OFF */
+	size_t o = 0U;
+
+	if (UNLIKELY(comp == NULL)) {
+		comp = malloc(m * sizeof(*comp));
+		if (UNLIKELY(comp == NULL)) {
+			return;
+		}
+		idir = malloc(n * sizeof(*idir));
+		if (UNLIKELY(idir == NULL)) {
+			free(comp);
+			comp = NULL;
+			return;
+		}
+	}
+
+	/* prep compactifier, this is a radix sort */
+	memset(comp, 0, m * sizeof(*comp));
+	/* prep IDIR buffer */
+	for (size_t i = 0U; i < n; i++) {
+		idir[i] = i;
+	}
+	for (size_t i = n; i < m; i++) {
+		idir[pcg32_boundedrand(n)] = i;
+	}
+	/* now sort him */
+	for (size_t i = 0U; i < n; i++) {
+		comp[idir[i]] = 1U;
+	}
+
+	/* ... now move them lines
+	 * we calculate streaks of lines and move them in bulk */
+	for (size_t i = 0U, beg = 0U, end; beg < m; beg = end + 1U) {
+		size_t len;
+
+		/* find first line to move, COMP[] is guaranteed to have
+		 * N matches */
+		for (; !comp[beg]; beg++);
+		for (end = beg + 1U; end < m && comp[end]; end++);
+
+		memmove(rsv + o, rsv + off[beg], len = off[end] - off[beg]);
+
+		/* resolve into lines again */
+		for (size_t j = beg, bof = off[beg]; j < end; j++) {
+			off[i++] = o + off[j] - bof;
+		}
+		o += len;
+	}
+	off[n] = o;
+	return;
 }
 
 static int
@@ -363,7 +422,6 @@ sample_gen(int fd)
 	return 0;
 }
 
-
 static int
 sample_rsv(int fd)
 {
@@ -376,14 +434,20 @@ sample_rsv(int fd)
 	size_t ibuf = 0U;
 	/* skip up to this line */
 	size_t gap = 0U;
+	/* nfixed buffer oversampling */
+	size_t nfxd = 0U;
 	/* number of octets read per read() */
 	ssize_t nrd;
 	/* offsets to footer */
-	size_t _last[stklmt / 2U];
+	size_t _last[stklmt / 3U];
 	size_t *last = _last;
-	/* reservoir lines */
-	size_t _lrsv[stklmt / 2U];
+	/* reservoir lines
+	 * we store offsets into RSV buffer in LRSV, which is 3 times the
+	 * size of NFIXED to concentrate the memmove()ing
+	 * the kill count for each cell is stored in LGAP */
+	size_t _lrsv[stklmt / 3U];
 	size_t *lrsv = _lrsv;
+	const size_t mult = 4U;
 	/* 3 major states, HEAD BEEF/CAKE and TAIL */
 	enum {
 		EVAL,
@@ -433,9 +497,9 @@ sample_rsv(int fd)
 		/* do him with heap space */
 		last = malloc((nfooter + 1U) * sizeof(*last));
 	}
-	if (nfixed >= countof(_lrsv)) {
+	if (mult * nfixed >= countof(_lrsv)) {
 		/* do her with heap space */
-		lrsv = malloc((nfixed + 1U) * sizeof(*lrsv));
+		lrsv = malloc((mult * nfixed + 1U) * sizeof(*lrsv));
 	}
 
 	/* deal with header */
@@ -522,11 +586,12 @@ sample_rsv(int fd)
 			/* take on the reservoir */
 			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U],
 				LAST(nfln - nfooter) - lrsv[0U]);
-			lrsv[nfixed] = LAST(nfln - nfooter) - lrsv[0U];
-			for (size_t i = nfixed - 1U; i > 0; i--) {
-				lrsv[i] -= lrsv[0U];
+			lrsv[nfixed] = LAST(nfln - nfooter);
+			for (size_t i = nfixed + 1U; i > 0; i--) {
+				lrsv[i - 1U] -= lrsv[0U];
 			}
-			lrsv[0U] = 0U;
+
+			nfxd = nfixed;
 
 			/* we need one more sample step because the
 			 * condition above that got us here goes one
@@ -537,6 +602,11 @@ sample_rsv(int fd)
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 			     ibuf = x - buf + 1U, nfln++) {
+				/* current line length */
+				const size_t y =
+					LAST(nfln - nfooter + 1U) -
+					LAST(nfln - nfooter + 0U);
+
 				/* keep track of footers */
 				LAST(nfln) = ibuf;
 
@@ -545,35 +615,23 @@ sample_rsv(int fd)
 					goto bexp;
 				}
 
-				/* keep with propability nfixed / nfln */
-				if (pcg32_boundedrand(nfln) < nfixed) {
-					/* drop a random sample from the tail */
-					const size_t j =
-						pcg32_boundedrand(nfixed);
-					/* line length at J */
-					const size_t z =
-						lrsv[j + 1U] - lrsv[j + 0U];
-					/* current line length */
-					const size_t y =
-						nfooter ?
-						LAST(nfln - nfooter + 1U) -
-						LAST(nfln - nfooter + 0U)
-						: x - buf + 1U - ibuf;
-
-					memmove(rsv + lrsv[j + 0U],
-						rsv + lrsv[j + 1U],
-						lrsv[nfixed] - lrsv[j + 1U]);
-
-					for (size_t i = j + 1U;
-					     i <= nfixed; i++) {
-						lrsv[i - 1U] = lrsv[i] - z;
-					}
-					/* bang this line */
-					MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
-						buf + LAST(nfln - nfooter), y);
-					/* and memorise him */
-					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
+				/* keep with probability nfixed / nfln */
+				if (pcg32_boundedrand(nfln) >= nfixed) {
+					continue;
 				}
+
+				if (UNLIKELY(nfxd >= mult * nfixed)) {
+					/* condense lrsv */
+					compactify(lrsv, nfxd, nfixed);
+					nfxd = nfixed;
+				}
+
+				/* bang this line */
+				MEMZCPY(rsv, lrsv[nfxd], zrsv,
+					buf + LAST(nfln - nfooter), y);
+				/* and memorise him */
+				lrsv[nfxd + 1U] = lrsv[nfxd] + y;
+				nfxd++;
 			}
 			goto over;
 
@@ -593,33 +651,26 @@ sample_rsv(int fd)
 			     nfln >= gap &&
 				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 				) {
-				/* drop a random sample from the tail */
-				const size_t j = pcg32_boundedrand(nfixed);
-				/* line length at J */
-				const size_t z = lrsv[j + 1U] - lrsv[j + 0U];
+				/* current line length */
+				const size_t y =
+					LAST(nfln - nfooter + 1U) -
+					LAST(nfln - nfooter + 0U);
 
 				/* keep track of footers */
 				LAST(nfln) = ibuf;
 
-				memmove(rsv + lrsv[j + 0U],
-					rsv + lrsv[j + 1U],
-					lrsv[nfixed] - lrsv[j + 1U]);
+				if (UNLIKELY(nfxd >= mult * nfixed)) {
+					/* condense lrsv */
+					compactify(lrsv, nfxd, nfixed);
+					nfxd = nfixed;
+				}
 
-				for (size_t i = j + 1U;
-				     i <= nfixed; i++) {
-					lrsv[i - 1U] = lrsv[i] - z;
-				}
 				/* bang this line */
-				with (const size_t y =
-				      nfooter ?
-				      LAST(nfln - nfooter + 1U) -
-				      LAST(nfln - nfooter + 0U)
-				      : x - buf + 1U - ibuf) {
-					MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
-						buf + LAST(nfln - nfooter), y);
-					/* and memorise him */
-					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
-				}
+				MEMZCPY(rsv, lrsv[nfxd], zrsv,
+					buf +  LAST(nfln - nfooter), y);
+				/* and memorise him */
+				lrsv[nfxd + 1U] = lrsv[nfxd] + y;
+				nfxd++;
 
 				ibuf = x - buf + 1U;
 				nfln++;
@@ -662,6 +713,9 @@ sample_rsv(int fd)
 		}
 	}
 	if (nfln >= nfixed + nfooter) {
+		/* compactify to obtain the final result */
+		compactify(lrsv, nfxd, nfixed);
+
 		const size_t z = lrsv[nfixed];
 		const size_t beg = LAST(nfln - nfooter - 0U);
 		const size_t end = LAST(nfln - nfooter - 1U);
@@ -704,12 +758,17 @@ sample_rsv_0f(int fd)
 	size_t ibuf = 0U;
 	/* skip up to this line */
 	size_t gap = 0U;
+	/* nfixed buffer oversampling */
+	size_t nfxd = 0U;
 	/* number of octets read per read() */
 	ssize_t nrd;
-	/* reservoir lines */
-	size_t _lrsv[stklmt];
+	/* reservoir lines
+	 * we store offsets into RSV buffer in LRSV, which is 3 times the
+	 * size of NFIXED to concentrate the memmove()ing */
+	size_t _lrsv[stklmt / 2U];
 	size_t *lrsv = _lrsv;
-	/* 3 major states, HEAD BEEF/CAKE and TAIL */
+	const size_t mult = 4U;
+	/* major states */
 	enum {
 		EVAL,
 		HEAD,
@@ -736,9 +795,9 @@ sample_rsv_0f(int fd)
 		rsv = tmp;
 		zrsv = BUFSIZ;
 	}
-	if (nfixed >= countof(_lrsv)) {
+	if (mult * nfixed >= countof(_lrsv)) {
 		/* do her with heap space */
-		lrsv = malloc((nfixed + 1U) * sizeof(*lrsv));
+		lrsv = malloc((mult * nfixed + 1U) * sizeof(*lrsv));
 	}
 
 	/* deal with header */
@@ -800,8 +859,9 @@ sample_rsv_0f(int fd)
 		case FILL:
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));) {
-				/* keep track of footers */
-				lrsv[nfln++] = ibuf;
+				/* keep track of lines */
+				lrsv[nfln] = ibuf;
+				nfln++;
 				ibuf = ++x - buf;
 
 				if (nfln >= nfixed) {
@@ -814,11 +874,12 @@ sample_rsv_0f(int fd)
 			state = BEEF;
 			/* take on the reservoir */
 			MEMZCPY(rsv, 0U, zrsv, buf + lrsv[0U], ibuf - lrsv[0U]);
-			lrsv[nfixed] = ibuf - lrsv[0U];
-			for (size_t i = nfixed - 1U; i > 0; i--) {
-				lrsv[i] -= lrsv[0U];
+			lrsv[nfixed] = ibuf;
+			for (size_t i = nfixed + 1U; i > 0; i--) {
+				lrsv[i - 1U] -= lrsv[0U];
 			}
-			lrsv[0U] = 0U;
+
+			nfxd = nfixed;
 
 			/* we need one more sample step because the
 			 * condition above that got us here goes one
@@ -829,35 +890,30 @@ sample_rsv_0f(int fd)
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 			     ibuf = x - buf + 1U, nfln++) {
+				/* current line length */
+				const size_t y = x - buf + 1U - ibuf;
+
 				if (nfln >= 4U * nfixed) {
 					/* switch to gap sampling */
 					goto bexp;
 				}
-				/* keep with propability nfixed / nfln */
-				if (pcg32_boundedrand(nfln) < nfixed) {
-					/* drop a random sample from the tail */
-					const size_t j =
-						pcg32_boundedrand(nfixed);
-					/* line length at J */
-					const size_t z =
-						lrsv[j + 1U] - lrsv[j + 0U];
-					/* current line length */
-					const size_t y = x - buf + 1U - ibuf;
 
-					memmove(rsv + lrsv[j + 0U],
-						rsv + lrsv[j + 1U],
-						lrsv[nfixed] - lrsv[j + 1U]);
-
-					for (size_t i = j + 1U;
-					     i <= nfixed; i++) {
-						lrsv[i - 1U] = lrsv[i] - z;
-					}
-					/* bang this line */
-					MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
-						buf + ibuf, y);
-					/* and memorise him */
-					lrsv[nfixed] = lrsv[nfixed - 1U] + y;
+				/* keep with probability nfixed / nfln */
+				if (pcg32_boundedrand(nfln) >= nfixed) {
+					continue;
 				}
+
+				if (UNLIKELY(nfxd >= mult * nfixed)) {
+					/* condense lrsv */
+					compactify(lrsv, nfxd, nfixed);
+					nfxd = nfixed;
+				}
+
+				/* bang this line */
+				MEMZCPY(rsv, lrsv[nfxd], zrsv, buf + ibuf, y);
+				/* and memorise him */
+				lrsv[nfxd + 1U] = lrsv[nfxd] + y;
+				nfxd++;
 			}
 			goto over;
 
@@ -873,26 +929,20 @@ sample_rsv_0f(int fd)
 			     nfln >= gap &&
 				     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 				) {
-				/* drop a random sample from the tail */
-				const size_t j = pcg32_boundedrand(nfixed);
-				/* line length at J */
-				const size_t z = lrsv[j + 1U] - lrsv[j + 0U];
 				/* current line length */
 				const size_t y = x - buf + 1U - ibuf;
 
-				memmove(rsv + lrsv[j + 0U],
-					rsv + lrsv[j + 1U],
-					lrsv[nfixed] - lrsv[j + 1U]);
-
-				for (size_t i = j + 1U;
-				     i <= nfixed; i++) {
-					lrsv[i - 1U] = lrsv[i] - z;
+				if (UNLIKELY(nfxd >= mult * nfixed)) {
+					/* condense lrsv */
+					compactify(lrsv, nfxd, nfixed);
+					nfxd = nfixed;
 				}
+
 				/* bang this line */
-				MEMZCPY(rsv, lrsv[nfixed - 1U], zrsv,
-					buf + ibuf, y);
+				MEMZCPY(rsv, lrsv[nfxd], zrsv, buf + ibuf, y);
 				/* and memorise him */
-				lrsv[nfixed] = lrsv[nfixed - 1U] + y;
+				lrsv[nfxd + 1U] = lrsv[nfxd] + y;
+				nfxd++;
 
 				ibuf = x - buf + 1U;
 				nfln++;
@@ -925,10 +975,12 @@ sample_rsv_0f(int fd)
 		}
 	}
 	if (nfln > nfixed) {
-		const size_t z = lrsv[nfixed];
+		/* compactify to obtain the final result */
+		compactify(lrsv, nfxd, nfixed);
 
 		fwrite("...\n", 1, 4U, stdout);
-		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
+		fwrite(rsv + lrsv[0U], sizeof(*rsv),
+		       lrsv[nfixed] - lrsv[0U], stdout);
 		fwrite("...\n", 1, 4U, stdout);
 	} else if (nfln == nfixed) {
 		/* we ran 0 steps through beef */
@@ -1100,6 +1152,12 @@ Error: seeds must be positive integers");
 	}
 	if (rsv != NULL) {
 		free(rsv);
+	}
+	if (comp != NULL) {
+		free(comp);
+	}
+	if (idir != NULL) {
+		free(idir);
 	}
 
 out:
