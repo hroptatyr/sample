@@ -1138,10 +1138,12 @@ Error: seeds must be positive integers");
 		if (getrlimit(RLIMIT_STACK, &lmt) < 0) {
 			/* yeah right */
 			break;
+		} else if (lmt.rlim_cur == RLIM_INFINITY) {
+			/* brilliant, is this make 3.81? */
+			break;
 		}
 		stklmt = lmt.rlim_cur / sizeof(stklmt) / 2U;
 	}
-
 
 	for (size_t i = 0U; i < argi->nargs + !argi->nargs; i++) {
 		rc |= sample(argi->args[i]) < 0;
