@@ -95,6 +95,15 @@ and `head` and `tail` to produce the same result.
     ZZZ
 
 
+Similar projects
+================
+
+In no particular order and without any claim to completeness:
+
++ subsample: <https://github.com/paulgb/subsample>
++ fast_sample: <https://github.com/earino/fast_sample>
+
+
   [1]: http://opensource.org/licenses/BSD-3-Clause
   [2]: https://github.com/paulgb/subsample
   [3]: https://github.com/earino/fast_sample
