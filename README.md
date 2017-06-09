@@ -27,23 +27,22 @@ Motivation
 
 Tools like [paulgb's subsample][2] or [earino's fast_sample][3]
 usually do the trick and everyone seems to agree (judged by github
-stars).  However, both tools have two short-comings: they try to make
-sense of the line data semantically, and secondly, they use their
-language's built-in routines to produce random numbers.
+stars).  However, both tools have short-comings: they try to make
+sense of the line data semantically, and secondly, they are slow!
 
 The first issue is such a major problem that their bug trackers are
-full of reports.  `subsample' needs lines to be UTF-8 strings and
+full of reports.  `subsample` needs lines to be UTF-8 strings and
 `fast_sample` wants CSV files whose correctness is checked along the
-way.  `sample` on the other hand does not care about the line's
-content, all it needs are those line breaks at the end.
+way.  This project's tool, `sample`, on the other hand does not care
+about the line's content, all it needs are those line breaks at the
+end.
 
-The second issue is far more pressing when line sampling becomes the
-bottleneck in your workflow.  Throwing enough I/O power at the tools
-and they show their true slowness: `subsample` can go through just
-over 1M lines per second and `fast_sample` doubles that.  `sample`
-uses the very fast [PCG family][4] to obtain its randomness.  This
-(and the lack of line processing) catapults performance into the range
-of 60+M lines per second.
+The speed issue is addressed by
+
+- using the most appropriate programming language for the problem
+- using radix sort
+- using the [PCG family][4] to obtain randomness
+- oversampling
 
 
 Examples
