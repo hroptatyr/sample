@@ -27,16 +27,21 @@ Features
 - proportional sampling of streams and files
 - header and footer can be included in the sample
 - reservoir sampling (fixed sample size) of streams and files
-- reservoir sampling preserves order
+- stable reservoir sampling (i.e. the order is preserved)
 
 
 Motivation
 ----------
 
-Tools like [paulgb's subsample][2] or [earino's fast_sample][3]
-usually do the trick and everyone seems to agree (judged by github
-stars).  However, both tools have short-comings: they try to make
-sense of the line data semantically, and secondly, they are slow!
+Practically ubiquitous, there's `shuf -n` of [GNU coreutils][5], a tool
+that, in principle, solves the problem at hand.  However, `shuf` buffers
+all input and is therefore useless for files that don't fit in memory.
+
+So, looking for alternatives one may come across [paulgb's subsample][2]
+or [earino's fast_sample][3].  They usually do the trick and everyone
+seems to agree (judged by github stars).  However, both tools have
+short-comings: they try to make sense of the line data semantically, and
+secondly, they are slow!
 
 The first issue is such a major problem that their bug trackers are
 full of reports.  `subsample` needs lines to be UTF-8 strings and
@@ -108,12 +113,14 @@ In no particular order and without any claim to completeness:
 
 + subsample: <https://github.com/paulgb/subsample>
 + fast_sample: <https://github.com/earino/fast_sample>
++ shuf: <https://www.gnu.org/software/coreutils/coreutils.html>
 
 
   [1]: http://opensource.org/licenses/BSD-3-Clause
   [2]: https://github.com/paulgb/subsample
   [3]: https://github.com/earino/fast_sample
   [4]: http://www.pcg-random.org/
+  [5]: https://www.gnu.org/software/coreutils/coreutils.html
 
 <!--
   Local variables:
