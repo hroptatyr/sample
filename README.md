@@ -1,6 +1,8 @@
 sample
 ======
 
+[![Build Status](https://secure.travis-ci.org/hroptatyr/sample.png?branch=master)](http://travis-ci.org/hroptatyr/sample)
+
 Produce a sample of lines from files.  The sample size is either fixed
 or proportional to the size of the file.  Additionally, the header and
 footer can be included in the sample.
