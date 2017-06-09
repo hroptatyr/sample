@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"></meta>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="canonical" href="http://www.fresse.org/numchk{{ page.url }}"/>
+    <title>{{ page.title }}</title>
+    <link href="/assets/custom/css/default.css" media="screen" rel="stylesheet" type="text/css"></link>
+    {% if page.description %}<meta name="description" content="{{ page.description }}"></meta>{% endif %}
+    <meta name="author" content="Sebastian Freundt"></meta>
+  </head>
+
+  <body>
+    <a href="https://github.com/hroptatyr/{{ page.project }}"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_orange_ff7600.png" alt="Fork me on GitHub"></a>
+    <div id="main">
+      <div id="header-wrapper">
+        <div id="header" class="basic" >
+          <div class="site">
+	    {% if page.logo %}
+	    <a class="logo" href="/{{ page.project }}">
+	      <img src="/{{ page.project }}/images/{{ page.logo }}"/>
+	    </a>
+	    {% endif %}
+            <div class="topsearch">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="wrapper">
+	<div id="content" class="site">
+
+	  {{ content }}
+
+	</div><!-- content -->
+      </div><!-- wrapper -->
+
+      <div class="push"></div>
+    </div>
+
+    <div id="footer" >
+      <div class="upper_footer">
+	<div class="footer_inner clearfix">
+
+	</div><!-- /.site -->
+      </div><!-- /.upper_footer -->
+
+      <div class="lower_footer">
+	<div class="footer_inner clearfix">
+
+	</div><!-- /.site -->
+      </div><!-- /.lower_footer -->
+    </div><!-- /#footer -->
+  </body>
+</html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"></meta>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="canonical" href="http://www.fresse.org/sample/"/>
+    <title>{{ page.title }}</title>
+    <link href="/assets/custom/css/default.css" media="screen" rel="stylesheet" type="text/css">
+    {% if page.description %}<meta name="description" content="{{ page.description }}"></meta>{% endif %}
+    <meta name="author" content="Sebastian Freundt"></meta>
+  </head>
+
+  <body>
+    <a href="https://github.com/hroptatyr/{{ page.project }}"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_orange_ff7600.png" alt="Fork me on GitHub"></a>
+    <div id="main">
+      <div id="header-wrapper">
+        <div id="header" class="basic" >
+          <div class="site">
+	    {% if page.logo %}
+	    <a class="logo" href="/{{ page.project }}">
+	      <img src="/{{ page.project }}/images/{{ page.logo }}"/>
+	    </a>
+	    {% endif %}
+            <div class="topsearch">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="wrapper">
+	<div id="rtop" class="sidebar-widget">
+	  <div class="sidebar-stack">
+	    <ul>
+	      <li>
+		<script type="text/javascript" src="http://www.openhub.net/p/{{ page.project }}/widgets/project_languages.js"></script>
+	      </li>
+	    </ul>
+	  </div>
+	  <div class="sidebar-stack">
+	    <ul>
+	      <li>
+		<a href="https://github.com/hroptatyr/{{ page.project }}/releases"><img src="https://badge.fury.io/gh/hroptatyr%2F{{ page.project }}.png"></img></a>
+		<a href="http://opensource.org/licenses/BSD-3-Clause"><img src="http://img.shields.io/badge/licence-BSD3c-brightgreen.svg"></img></a>
+	      </li>
+	    </ul>
+	  </div>
+	  <div class="sidebar-stack">
+	    <ul>
+	      <li><a href="https://github.com/hroptatyr/{{ page.project }}">github page</a></li>
+	      {% if page.latest %}
+	      {% capture latest %}{{ page.latest | split:'/' | last }}{% endcapture %}
+	      <li>
+		<a href="{{ page.latest }}">latest release ({{ latest }})</a>
+	      </li>
+	      {% endif %}
+	    </ul>
+	  </div>
+	</div><!-- rtop -->
+
+	<div id="content" class="site">
+
+	  {{ content }}
+
+	</div><!-- content -->
+      </div><!-- wrapper -->
+
+      <div class="push"></div>
+    </div>
+
+    <div id="footer" >
+      <div class="upper_footer">
+	<div class="footer_inner clearfix">
+
+	</div><!-- /.site -->
+      </div><!-- /.upper_footer -->
+
+      <div class="lower_footer">
+	<div class="footer_inner clearfix">
+
+	</div><!-- /.site -->
+      </div><!-- /.lower_footer -->
+    </div><!-- /#footer -->
+  </body>
+</html>
