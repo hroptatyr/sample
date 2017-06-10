@@ -21,6 +21,14 @@ Red tape
 - licensed under [BSD3c][1]
 
 
+Resources
+---------
++ homepage: <http://www.fresse.org/sample/>
++ github:   <https://github.com/hroptatyr/sample>
++ issues:   <https://github.com/hroptatyr/sample/issues>
++ download: <https://github.com/hroptatyr/sample/releases>
+
+
 Features
 --------
 
