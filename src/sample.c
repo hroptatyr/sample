@@ -66,6 +66,7 @@ static long long unsigned int rate = UINT32_MAX / 10U;
 static size_t nfixed;
 /* limit for VLAs */
 static size_t stklmt;
+static unsigned int quietp;
 
 
 static void
@@ -279,7 +280,9 @@ sample_gen(int fd)
 			goto wrap;
 
 		cake:
-			fwrite("...\n", 1, 4U, stdout);
+			if (!quietp) {
+				fwrite("...\n", 1, 4U, stdout);
+			}
 			state = CAKE;
 		case CAKE:
 			/* CAKE is the mode where we don't track tail lines */
@@ -337,7 +340,9 @@ sample_gen(int fd)
 			goto over;
 
 		beef:
-			fwrite("...\n", 1, 4U, stdout);
+			if (!quietp) {
+				fwrite("...\n", 1, 4U, stdout);
+			}
 			state = BEEF;
 			/* we need one more sample step because the
 			 * condition above that got us here goes one
@@ -406,7 +411,9 @@ sample_gen(int fd)
 	}
 	if (noln > nheader ||
 	    !rate && nfln > nheader + nfooter) {
-		fwrite("...\n", 1, 4U, stdout);
+		if (!quietp) {
+			fwrite("...\n", 1, 4U, stdout);
+		}
 	}
 	/* fast forward footer if there wasn't enough lines */
 	if (nfln > nheader + nfooter) {
@@ -725,11 +732,15 @@ sample_rsv(int fd)
 		const size_t end = LAST(nfln - nheader - nfooter - 1U);
 
 		if (nfln > nheader + nfixed + nfooter) {
-			fwrite("...\n", 1, 4U, stdout);
+			if (!quietp) {
+				fwrite("...\n", 1, 4U, stdout);
+			}
 		}
 		fwrite(rsv + lrsv[0U], sizeof(*rsv), z - lrsv[0U], stdout);
 		if (nfln > nheader + nfixed + nfooter) {
-			fwrite("...\n", 1, 4U, stdout);
+			if (!quietp) {
+				fwrite("...\n", 1, 4U, stdout);
+			}
 		}
 		fwrite(buf + beg, sizeof(*buf), end - beg, stdout);
 	} else if (nfln > nheader + nfooter) {
@@ -982,10 +993,14 @@ sample_rsv_0f(int fd)
 		/* compactify to obtain the final result */
 		compactify(lrsv, nfxd, nfixed);
 
-		fwrite("...\n", 1, 4U, stdout);
+		if (!quietp) {
+			fwrite("...\n", 1, 4U, stdout);
+		}
 		fwrite(rsv + lrsv[0U], sizeof(*rsv),
 		       lrsv[nfixed] - lrsv[0U], stdout);
-		fwrite("...\n", 1, 4U, stdout);
+		if (!quietp) {
+			fwrite("...\n", 1, 4U, stdout);
+		}
 	} else if (nfln == nheader + nfixed) {
 		/* we ran 0 steps through beef */
 		const size_t z = lrsv[nfixed];
@@ -1064,6 +1079,8 @@ main(int argc, char *argv[])
 	if (argi->footer_arg) {
 		nfooter = strtoul(argi->footer_arg, NULL, 0);
 	}
+	/* capture -q|--quiet */
+	quietp = argi->quiet_flag;
 
 	/* treat ttys specially */
 	if (isatty(STDOUT_FILENO) && !argi->rate_arg) {
