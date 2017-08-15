@@ -233,7 +233,7 @@ sample_gen(int fd)
 		zbuf = BUFSIZ;
 	}
 
-	if (nfooter >= countof(last)) {
+	if (nfooter >= countof(_last)) {
 		/* better do it with heap space */
 		last = malloc((nfooter + 1U) * sizeof(*last));
 	}
