@@ -1,6 +1,6 @@
 #!/usr/bin/clitoris
 
-$ seq 1 19 | sample -N 10
+$ seq 1 19 | sample -n 10
 1
 2
 3

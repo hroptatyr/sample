@@ -1,7 +1,7 @@
 #!/usr/bin/clitoris
 
 ## should trigger the gap algo
-$ seq 1 100 | sample -H 0 -N 4 -S 0x3
+$ seq 1 100 | sample -H 0 -n 4 -S 0x3
 ...
 9
 39
