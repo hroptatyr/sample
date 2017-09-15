@@ -1,0 +1,19 @@
+name: sample
+version: '0.1.0-GIT'
+summary: Produce a sample of lines from files. 
+description: |
+    Command-line tool to produce a sample of lines from files.
+    The sample size is either fixed or proportional to the size
+    of the file.  Additionally, the header and footer can be
+    included in the sample.
+grade: stable
+confinement: strict
+
+apps:
+    sample:
+        command: bin/sample
+
+parts:
+    sample:
+        plugin: autotools
+        source: https://github.com/hroptatyr/sample.git
