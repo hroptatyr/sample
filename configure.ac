@@ -3,7 +3,7 @@ dnl Autoconf startup.
 dnl -------------------------------------------------------------------------
 
 AC_PREREQ([2.63])
-AC_INIT([sample], [0.1.1], [freundt@ga-group.nl])
+AC_INIT([sample], [0.1.2.GIT], [freundt@ga-group.nl])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_HEADERS([src/config.h])
 AC_CONFIG_MACRO_DIR([m4])
