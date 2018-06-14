@@ -13,4 +13,5 @@ Output a sample of FILE, or stdin if omitted.
                         values >1 are interpreted as 1 in X,
                         default: 10%.
   -S, --seed=X          Seed sample with X, default: random seed.
+  -s                    Print the seed used to stderr.
   -q, --quiet           Do not emit ellipses.

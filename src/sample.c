@@ -117,21 +117,6 @@ static size_t zrsv;
 static uint8_t *comp;
 static size_t *idir;
 
-static int
-init_rng(uint64_t seed)
-{
-	uint64_t stid = 0ULL;
-
-	if (!seed) {
-		seed = time(NULL);
-		seed <<= 20U;
-		seed ^= getpid();
-		stid = (intptr_t)&seed;
-	}
-	pcg32_srandom(seed, stid);
-	return 0;
-}
-
 static void
 compactify(size_t *restrict off, const size_t m, const size_t n)
 {
@@ -1138,20 +1123,27 @@ Error: parameter to --fixed must be positive");
 		}
 	}
 
-	with (uint64_t s = 0U) {
+	with (uint64_t seed = 0U) {
 		if (argi->seed_arg) {
 			char *on;
-			s = strtoull(argi->seed_arg, &on, 0);
-			if (!s || *on) {
+			seed = strtoull(argi->seed_arg, &on, 0);
+			if (!seed || *on) {
 				errno = 0, error("\
 Error: seeds must be positive integers");
 				rc = 1;
 				goto out;
 			}
+		} else {
+			seed = time(NULL);
+			seed <<= 20U;
+			seed ^= getpid();
 		}
-
 		/* initialise randomness */
-		init_rng(s);
+		pcg32_srandom(seed, 0);
+
+		if (argi->dashs_flag) {
+			fprintf(stderr, "0x%016llx\n", seed);
+		}
 	}
 
 	/* obtain stack limits */
