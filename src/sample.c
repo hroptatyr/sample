@@ -1140,6 +1140,10 @@ Error: seeds must be positive integers");
 		}
 		/* initialise randomness */
 		pcg32_srandom(seed, 0);
+
+		if (argi->dashs_flag) {
+			fprintf(stderr, "0x%016llx\n", seed);
+		}
 	}
 
 	/* obtain stack limits */
