@@ -52,7 +52,6 @@
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <assert.h>
-#include "pcg_basic.h"
 #include "nifty.h"
 
 #if defined BUFSIZ
@@ -85,11 +84,55 @@ error(const char *fmt, ...)
 	fputc('\n', stderr);
 	return;
 }
+static inline __attribute__((pure, const)) size_t
+min_z(size_t z1, size_t z2)
+{
+	return z1 <= z2 ? z1 : z2;
+}
+
+
+static uint64_t g32;
+
+static inline __attribute__((pure, const)) uint32_t
+ror32(uint32_t v, unsigned int r)
+{
+	return (v >> r) | (v << ((-r) & 0x1fU));
+}
+
+static inline uint32_t pcg32_xsh_rr(uint64_t *s)
+{
+	static const uint64_t m = 0x5851f42d4c957f2dULL;
+	static const uint64_t i = 0x1ULL;
+	uint64_t old = *s;
+	uint32_t xor = ((old >> 18U) ^ old) >> 27U;
+	uint32_t rot = old >> 59U;
+	*s = old * m + i;
+	return ror32(xor, rot);
+}
+
+static void
+pcg32_srandom(uint64_t seed, uint64_t seq)
+{
+	pcg32_xsh_rr(&g32);
+	g32 += 0x1ULL;
+	pcg32_xsh_rr(&g32);
+	return;
+}
+
+static inline __attribute__((pure, const)) float
+ui2f(uint32_t v)
+{
+	union {
+		uint32_t ui32;
+		float f;
+	} x = {v & 0x7fffffU ^ 0x3f800000U};
+	return x.f - 1.f;
+}
 
 static inline unsigned int
 runif32(void)
 {
-	return pcg32_random();
+	return pcg32_xsh_rr(&g32);
 }
 
 static unsigned int
