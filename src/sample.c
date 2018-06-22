@@ -111,42 +111,38 @@ static inline uint32_t pcg32_xsh_rr(uint64_t *s)
 }
 
 static void
-pcg32_srandom(uint64_t seed, uint64_t seq)
+pcg32_srandom(uint64_t seed)
 {
 	pcg32_xsh_rr(&g32);
-	g32 += 0x1ULL;
+	g32 += seed;
 	pcg32_xsh_rr(&g32);
 	return;
 }
 
-static inline __attribute__((pure, const)) float
-ui2f(uint32_t v)
-{
-	union {
-		uint32_t ui32;
-		float f;
-	} x = {v & 0x7fffffU ^ 0x3f800000U};
-	return x.f - 1.f;
-}
-
 static inline unsigned int
-runif32(void)
+runifu32(void)
 {
 	return pcg32_xsh_rr(&g32);
+}
+
+static uint32_t
+runifu32b(uint32_t bound)
+{
+    uint32_t threshold = -bound % bound;
+    for (;;) {
+        uint32_t r = pcg32_xsh_rr(&g32);
+        if (r >= threshold) {
+		return r % bound;
+	}
+    }
 }
 
 static unsigned int
 rexp32(unsigned int n, unsigned int d)
 {
-	double u = (double)runif32() / 0x1.p32;
+	double u = (double)runifu32() / 0x1.p32;
 	double lambda = log((double)n / (double)d);
 	return (unsigned int)(log1p(-u) / lambda);
-}
-
-static inline __attribute__((pure, const)) size_t
-min_z(size_t z1, size_t z2)
-{
-	return z1 <= z2 ? z1 : z2;
 }
 
 
@@ -187,7 +183,7 @@ compactify(size_t *restrict off, const size_t m, const size_t n)
 		idir[i] = i;
 	}
 	for (size_t i = n; i < m; i++) {
-		idir[pcg32_boundedrand(n)] = i;
+		idir[runifu32b(n)] = i;
 	}
 	/* now sort him */
 	for (size_t i = 0U; i < n; i++) {
@@ -322,7 +318,7 @@ sample_gen(int fd)
 				nfln++;
 
 				/* sample */
-				if (runif32() < rate) {
+				if (runifu32() < rate) {
 					fwrite(buf + o, sizeof(*buf),
 					       ibuf - o, stdout);
 					noln++;
@@ -390,7 +386,7 @@ sample_gen(int fd)
 
 			sample:
 				/* sample */
-				if (runif32() < rate) {
+				if (runifu32() < rate) {
 					const size_t this =
 						LAST(nfln - nheader + 0U);
 					const size_t next =
@@ -652,7 +648,7 @@ sample_rsv(int fd)
 				}
 
 				/* keep with probability nfixed / nfln */
-				if (pcg32_boundedrand(nfln - nheader) >= nfixed) {
+				if (runifu32b(nfln - nheader) >= nfixed) {
 					continue;
 				}
 
@@ -941,7 +937,7 @@ sample_rsv_0f(int fd)
 				}
 
 				/* keep with probability nfixed / nfln */
-				if (pcg32_boundedrand(nfln - nheader) >= nfixed) {
+				if (runifu32b(nfln - nheader) >= nfixed) {
 					continue;
 				}
 
@@ -1182,7 +1178,7 @@ Error: seeds must be positive integers");
 			seed ^= getpid();
 		}
 		/* initialise randomness */
-		pcg32_srandom(seed, 0);
+		pcg32_srandom(seed);
 
 		if (argi->dashs_flag) {
 			fprintf(stderr, "0x%016llx\n", seed);
