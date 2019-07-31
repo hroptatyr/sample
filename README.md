@@ -73,11 +73,11 @@ To get 10 random words from the `words` file:
 
 The `-H 0` produces 0 lines of header output which defaults to 5.
 
-For proportional sampling use `-R|--rate`:
+For proportional sampling use `-r|--rate`:
 
     $ wc -l /usr/share/dict/words
     305089
-    $ sample -R 1% /usr/share/dict/words | wc -l
+    $ sample -r 1% /usr/share/dict/words | wc -l
     3080
 
 which is close to the true result bearing in mind that by default the
@@ -86,7 +86,7 @@ header and footer of the file is printed as well.
 Sampling with a rate of 0 replaces awkward scripts that use multios
 and `head` and `tail` to produce the same result.
 
-    $ sample -R 0 /usr/share/dict/words
+    $ sample -r 0 /usr/share/dict/words
     A
     AA
     AAA
