@@ -71,7 +71,7 @@ Examples
 
 To get 10 random words from the `words` file:
 
-    $ sample -N 10 -H 0 /usr/share/dict/words
+    $ sample -n 10 -H 0 /usr/share/dict/words
     ...
     benzopyrene
     calamondins
