@@ -1,7 +1,9 @@
 sample
 ======
+| Status | Conda Downloads | Conda Version | Platforms |
+| --- | --- | --- | --- |
+| [![Build Status](https://secure.travis-ci.org/hroptatyr/sample.png?branch=master)](http://travis-ci.org/hroptatyr/sample) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/sample.svg)](https://anaconda.org/conda-forge/sample) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/sample.svg)](https://anaconda.org/conda-forge/sample) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/sample.svg)](https://anaconda.org/conda-forge/sample) |
 
-[![Build Status](https://secure.travis-ci.org/hroptatyr/sample.png?branch=master)](http://travis-ci.org/hroptatyr/sample)
 
 Produce a sample of lines from files.  The sample size is either fixed
 or proportional to the size of the file.  Additionally, the header and
