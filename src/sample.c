@@ -541,6 +541,7 @@ sample_rsv(int fd)
 		nbuf += nrd;
 
 		switch (state) {
+			size_t z;
 		case EVAL:
 			if (!nheader) {
 				goto fill;
@@ -631,13 +632,14 @@ sample_rsv(int fd)
 			 * the ellipsis when there's exactly
 			 * nheader + nfooter lines in the buffer */
 		case BEEF:
+			z = nfooter <= 1U;
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
 			     ibuf = x - buf + 1U, nfln++) {
 				/* current line length */
 				const size_t y =
-					LAST(nfln - nheader - nfooter + 1U) -
-					LAST(nfln - nheader - nfooter + 0U);
+					LAST(nfln - nheader - nfooter + 1U - z) -
+					LAST(nfln - nheader - nfooter + 0U - z);
 
 				/* keep track of footers */
 				LAST(nfln - nheader) = ibuf;
@@ -668,8 +670,11 @@ sample_rsv(int fd)
 			goto over;
 
 		bexp:
-			gap = nfln - nheader +
-				rexp32(nfln - nheader - nfixed, nfln);
+			z = rexp32(nfln - nheader - nfixed, nfln);
+			gap = nfln - nheader + z;
+			/* re-sync, with only two elements it's possible to mix
+			 * up who's in the lead and who's behind */
+			z = nfooter <= 1U && z || state == BEXP;
 			state = BEXP;
 		case BEXP:
 			for (const char *x;
@@ -686,8 +691,8 @@ sample_rsv(int fd)
 				) {
 				/* current line length */
 				const size_t y =
-					LAST(nfln - nheader - nfooter + 1U) -
-					LAST(nfln - nheader - nfooter + 0U);
+					LAST(nfln - nheader - nfooter + 1U - z) -
+					LAST(nfln - nheader - nfooter + 0U - z);
 
 				/* keep track of footers */
 				LAST(nfln - nheader) = ibuf;
