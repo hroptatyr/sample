@@ -1,6 +1,6 @@
 /*** sample.c -- output a sample of a file
  *
- * Copyright (C) 2016-2018 Sebastian Freundt
+ * Copyright (C) 2016-2022 Sebastian Freundt
  *
  * Author:  Sebastian Freundt <freundt@ga-group.nl>
  *
@@ -629,7 +629,7 @@ sample_rsv(int fd)
 			 * condition above that got us here goes one
 			 * step further than it should, lest we print
 			 * the ellipsis when there's exactly
-			 * nheader + nfoooter lines in the buffer */
+			 * nheader + nfooter lines in the buffer */
 		case BEEF:
 			for (const char *x;
 			     (x = memchr(buf + ibuf, '\n', nbuf - ibuf));
