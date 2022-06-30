@@ -674,7 +674,7 @@ sample_rsv(int fd)
 			gap = nfln - nheader + z;
 			/* re-sync, with only two elements it's possible to mix
 			 * up who's in the lead and who's behind */
-			z = nfooter <= 1U && z || state == BEXP;
+			z = nfooter <= 1U && (z || state == BEXP);
 			state = BEXP;
 		case BEXP:
 			for (const char *x;
